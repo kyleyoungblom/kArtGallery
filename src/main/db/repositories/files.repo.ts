@@ -104,6 +104,16 @@ export function updateThumbnail(fileId: number, thumbnailPath: string, width: nu
     .run(thumbnailPath, width, height, fileId)
 }
 
+// Mark a file's thumbnail as "generated" even though it failed.
+// This prevents the file from being re-queued on every scan.
+// We set thumbnail_generated = 1 but leave thumbnail_path NULL,
+// so the fallback (original file) is used permanently for this file.
+export function markThumbnailFailed(fileId: number): void {
+  getDb()
+    .prepare('UPDATE files SET thumbnail_generated = 1 WHERE id = ?')
+    .run(fileId)
+}
+
 export function setFileHidden(fileId: number, hidden: boolean): void {
   getDb()
     .prepare('UPDATE files SET hidden = ? WHERE id = ?')

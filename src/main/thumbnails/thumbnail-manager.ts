@@ -4,7 +4,7 @@ import fs from 'fs'
 import os from 'os'
 import { BrowserWindow } from 'electron'
 import { getThumbnailCacheDir } from '../utils/paths'
-import { getFilesNeedingThumbnails, updateThumbnail } from '../db/repositories/files.repo'
+import { getFilesNeedingThumbnails, updateThumbnail, markThumbnailFailed } from '../db/repositories/files.repo'
 import type { ThumbnailJob, ThumbnailResult } from './thumbnail-worker'
 
 // The thumbnail manager is a work queue with a pool of worker threads.
@@ -67,34 +67,47 @@ function createWorker(): Worker {
 
   worker.on('message', (result: ThumbnailResult) => {
     activeJobs--
+    completedJobs++
 
     if (result.success) {
       updateThumbnail(result.fileId, result.outputPath, result.width, result.height)
-      completedJobs++
 
       // Queue this file ID for batch notification to the renderer
       readyFileIds.push(result.fileId)
       scheduleFlush()
+    } else {
+      // Mark as "generated" so we don't retry on every scan.
+      // The file will use the original-file fallback permanently.
+      console.warn(`Thumbnail failed for file ${result.fileId}: ${result.error}`)
+      markThumbnailFailed(result.fileId)
+    }
 
-      // Also send overall progress
-      const windows = BrowserWindow.getAllWindows()
-      for (const win of windows) {
-        win.webContents.send('thumbnails:progress', {
-          generated: completedJobs,
-          total: totalJobs
-        })
-      }
+    // Send overall progress regardless of success/failure
+    const windows = BrowserWindow.getAllWindows()
+    for (const win of windows) {
+      win.webContents.send('thumbnails:progress', {
+        generated: completedJobs,
+        total: totalJobs
+      })
     }
 
     // Process next job in queue
     processNextJob(worker)
   })
 
+  // If the worker thread itself crashes (not a job failure, but an unhandled
+  // exception in the thread), replace it with a fresh one so the pool stays
+  // at full capacity.
   worker.on('error', (err) => {
-    console.error('Thumbnail worker error:', err)
+    console.error('Thumbnail worker crashed:', err)
     activeJobs--
-    // Try to process next job even if this one failed
-    processNextJob(worker)
+
+    // Replace the dead worker
+    const index = workers.indexOf(worker)
+    if (index !== -1) {
+      workers[index] = createWorker()
+      processNextJob(workers[index])
+    }
   })
 
   return worker

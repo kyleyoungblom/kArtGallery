@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useGalleryStore } from '../../stores/gallery.store'
+import { useThumbnailReady } from '../../hooks/useThumbnailReady'
 import type { FileEntry } from '../../types/models'
 
 interface GalleryTileProps {
@@ -13,42 +14,24 @@ export function GalleryTile({ data, width }: GalleryTileProps): JSX.Element {
   const [hasCachedThumb, setHasCachedThumb] = useState(false)
   const cropToAspect = useGalleryStore((s) => s.cropToAspect)
 
-  // Initial thumbnail request
+  // Subscribe to the pub/sub system — this is a lightweight in-memory
+  // subscription, NOT an IPC listener. One global IPC listener feeds all tiles.
+  const thumbnailReady = useThumbnailReady(data.id, hasCachedThumb)
+
+  // Request thumbnail. Runs on mount and again when thumbnailReady flips to true
+  // (meaning the background worker just finished generating this file's thumbnail).
   useEffect(() => {
     let cancelled = false
 
     window.api.getThumbnail(data.id).then((thumbPath) => {
       if (cancelled || !thumbPath) return
       setImageSrc(`local-file://${thumbPath}`)
-      // Heuristic: if the path contains the file's ID followed by .jpg,
-      // it's a cached thumbnail. Otherwise it's the original file fallback.
       setHasCachedThumb(thumbPath.endsWith(`${data.id}.jpg`))
+      setLoaded(false)
     })
 
     return () => { cancelled = true }
-  }, [data.id])
-
-  // Listen for thumbnail-ready notifications. When this tile's thumbnail
-  // finishes generating, re-request it to swap from fallback to cached version.
-  // This is why thumbnails "pop in" progressively after a scan.
-  useEffect(() => {
-    // If we already have the cached thumbnail, no need to listen
-    if (hasCachedThumb) return
-
-    const unsubscribe = window.api.onThumbnailsReady((readyIds) => {
-      if (readyIds.includes(data.id)) {
-        window.api.getThumbnail(data.id).then((thumbPath) => {
-          if (thumbPath) {
-            setImageSrc(`local-file://${thumbPath}`)
-            setHasCachedThumb(true)
-            setLoaded(false) // Reset so fade-in plays again
-          }
-        })
-      }
-    })
-
-    return unsubscribe
-  }, [data.id, hasCachedThumb])
+  }, [data.id, thumbnailReady])
 
   const tileHeight = cropToAspect ? width : undefined
 
