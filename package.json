@@ -7,7 +7,7 @@
     "dev": "electron-vite dev",
     "build": "electron-vite build",
     "preview": "electron-vite preview",
-    "postinstall": "electron-rebuild -f -w better-sqlite3",
+    "postinstall": "electron-rebuild -f -w better-sqlite3,sharp",
     "typecheck:node": "tsc --noEmit -p tsconfig.node.json",
     "typecheck:web": "tsc --noEmit -p tsconfig.web.json",
     "typecheck": "npm run typecheck:node && npm run typecheck:web"
@@ -16,11 +16,16 @@
     "appId": "com.kartgallery.app",
     "productName": "kArtGallery",
     "mac": {
-      "target": ["dmg", "zip"],
+      "target": [
+        "dmg",
+        "zip"
+      ],
       "category": "public.app-category.photography"
     },
     "win": {
-      "target": ["nsis"]
+      "target": [
+        "nsis"
+      ]
     },
     "asar": true,
     "asarUnpack": [
@@ -29,19 +34,21 @@
     ]
   },
   "dependencies": {
+    "@webtoon/psd": "^0.4.0",
     "better-sqlite3": "^11.7.0",
     "chokidar": "^4.0.0",
     "masonic": "^4.0.1",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "zustand": "^5.0.0",
-    "@webtoon/psd": "^0.4.0"
+    "sharp": "^0.34.5",
+    "zustand": "^5.0.0"
   },
   "devDependencies": {
     "@electron/rebuild": "^3.6.0",
     "@types/better-sqlite3": "^7.6.12",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
+    "@types/sharp": "^0.31.1",
     "@vitejs/plugin-react": "^4.3.0",
     "electron": "^33.0.0",
     "electron-builder": "^25.1.0",

@@ -20,6 +20,7 @@ interface GalleryState {
   files: FileEntry[]
   isScanning: boolean
   scanProgress: { scanned: number; total: number } | null
+  scanVersion: number // Incremented after each scan to trigger re-fetches
 
   // Display settings
   sortField: SortField
@@ -37,6 +38,7 @@ interface GalleryState {
   setFiles: (files: FileEntry[]) => void
   setIsScanning: (scanning: boolean) => void
   setScanProgress: (progress: { scanned: number; total: number } | null) => void
+  incrementScanVersion: () => void
   setSortField: (field: SortField) => void
   setSortDirection: (direction: SortDirection) => void
   setGroupBy: (group: GroupBy) => void
@@ -53,6 +55,7 @@ export const useGalleryStore = create<GalleryState>((set) => ({
   files: [],
   isScanning: false,
   scanProgress: null,
+  scanVersion: 0,
 
   sortField: 'filename',
   sortDirection: 'asc',
@@ -68,6 +71,7 @@ export const useGalleryStore = create<GalleryState>((set) => ({
   setFiles: (files) => set({ files }),
   setIsScanning: (scanning) => set({ isScanning: scanning }),
   setScanProgress: (progress) => set({ scanProgress: progress }),
+  incrementScanVersion: () => set((state) => ({ scanVersion: state.scanVersion + 1 })),
   setSortField: (field) => set({ sortField: field }),
   setSortDirection: (direction) => set({ sortDirection: direction }),
   setGroupBy: (group) => set({ groupBy: group }),

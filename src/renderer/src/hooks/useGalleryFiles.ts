@@ -34,8 +34,11 @@ export function useGalleryFiles(): { files: FileEntry[]; isLoading: boolean } {
   const sortField = useGalleryStore((s) => s.sortField)
   const sortDirection = useGalleryStore((s) => s.sortDirection)
   const isScanning = useGalleryStore((s) => s.isScanning)
+  const scanVersion = useGalleryStore((s) => s.scanVersion)
   const setFiles = useGalleryStore((s) => s.setFiles)
 
+  // Re-runs when currentPath changes (user navigates) OR when scanVersion
+  // increments (scan just finished, DB now has data to fetch).
   useEffect(() => {
     if (!currentPath) return
 
@@ -60,7 +63,7 @@ export function useGalleryFiles(): { files: FileEntry[]; isLoading: boolean } {
       }))
       setFiles(mapped)
     })
-  }, [currentPath, setFiles])
+  }, [currentPath, scanVersion, setFiles])
 
   // useMemo: only re-sort when files or sort settings change.
   // Without this, sorting would run on every render — wasteful for large lists.

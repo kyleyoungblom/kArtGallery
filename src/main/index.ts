@@ -2,6 +2,7 @@ import { app, BrowserWindow, protocol, net } from 'electron'
 import path from 'path'
 import { initDb, closeDb } from './db/connection'
 import { registerAllHandlers } from './ipc/handlers'
+import { shutdownWorkers } from './thumbnails/thumbnail-manager'
 
 // Register a custom protocol to serve local files securely.
 // By default, Electron's renderer can't load file:// URLs for security reasons.
@@ -66,6 +67,7 @@ app.whenReady().then(() => {
 
 // Quit when all windows are closed (except on macOS, where apps stay in dock)
 app.on('window-all-closed', () => {
+  shutdownWorkers()
   closeDb()
   if (process.platform !== 'darwin') {
     app.quit()

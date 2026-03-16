@@ -66,7 +66,7 @@
   background: var(--color-accent);
   color: white;
   border: none;
-  border-radius: 6px;
+  border-radius: 0;
   cursor: pointer;
   font-size: 13px;
   font-weight: 500;
@@ -88,7 +88,7 @@
   gap: 4px;
   padding: 4px 8px;
   cursor: pointer;
-  border-radius: 4px;
+  border-radius: 0;
   margin: 1px 4px;
   user-select: none;
 }
@@ -167,7 +167,7 @@
   background: var(--color-bg-tertiary);
   color: var(--color-text);
   border: 1px solid var(--color-border);
-  border-radius: 4px;
+  border-radius: 0;
   padding: 3px 6px;
   font-size: 12px;
 }
@@ -181,7 +181,7 @@
   background: var(--color-bg-tertiary);
   color: var(--color-text);
   border: 1px solid var(--color-border);
-  border-radius: 4px;
+  border-radius: 0;
   padding: 3px 8px;
   cursor: pointer;
   font-size: 12px;
@@ -219,7 +219,7 @@
 
 .gallery-tile-image-container {
   background: var(--color-bg-tertiary);
-  border-radius: 4px;
+  border-radius: 0;
   overflow: hidden;
   display: flex;
   align-items: center;
@@ -266,7 +266,7 @@
 
 ::-webkit-scrollbar-thumb {
   background: var(--color-border);
-  border-radius: 4px;
+  border-radius: 0;
 }
 
 ::-webkit-scrollbar-thumb:hover {

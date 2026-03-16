@@ -3,6 +3,7 @@ import path from 'path'
 import { scanFolder } from '../scanner/folder-scanner'
 import { upsertFolder, updateLastScanned, getAllFolders } from '../db/repositories/folders.repo'
 import { upsertFiles, getFilesByFolder, getAllFiles } from '../db/repositories/files.repo'
+import { startThumbnailGeneration } from '../thumbnails/thumbnail-manager'
 import type { FolderNode } from '../../renderer/src/types/models'
 import fs from 'fs'
 
@@ -49,6 +50,10 @@ export function registerFileHandlers(): void {
     }
 
     updateLastScanned(rootFolder.id)
+
+    // Kick off thumbnail generation in the background.
+    // This runs in worker threads so it won't block the UI.
+    startThumbnailGeneration()
 
     return { fileCount: result.files.length, folderCount: result.subfolders.length }
   })

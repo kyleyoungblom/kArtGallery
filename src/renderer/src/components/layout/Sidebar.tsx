@@ -64,6 +64,7 @@ export function Sidebar(): JSX.Element {
   const setCurrentPath = useGalleryStore((s) => s.setCurrentPath)
   const setFolderTree = useGalleryStore((s) => s.setFolderTree)
   const setIsScanning = useGalleryStore((s) => s.setIsScanning)
+  const incrementScanVersion = useGalleryStore((s) => s.incrementScanVersion)
 
   const handlePickFolder = useCallback(async () => {
     const path = await window.api.pickFolder()
@@ -82,10 +83,11 @@ export function Sidebar(): JSX.Element {
     setFolderTree(tree as FolderNode)
     setIsScanning(false)
 
-    // Re-fetch files after scan
-    // The gallery hook will pick this up via currentPath change
-    setCurrentPath(path)
-  }, [setRootPath, setCurrentPath, setFolderTree, setIsScanning])
+    // Bump scanVersion so useGalleryFiles re-fetches from the now-populated DB.
+    // We can't just call setCurrentPath again — zustand won't trigger an update
+    // if the value hasn't changed.
+    incrementScanVersion()
+  }, [setRootPath, setCurrentPath, setFolderTree, setIsScanning, incrementScanVersion])
 
   // Listen for scan progress events
   useEffect(() => {
