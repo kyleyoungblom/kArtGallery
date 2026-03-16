@@ -243,6 +243,25 @@
   background: var(--color-bg-tertiary);
 }
 
+/* Shimmer animation for tiles waiting on thumbnail generation.
+   Uses a moving gradient to signal "loading" without a spinner.
+   The animation is subtle and low-CPU — pure CSS, no JS timers. */
+.gallery-tile-placeholder--loading {
+  background: linear-gradient(
+    90deg,
+    var(--color-bg-tertiary) 25%,
+    #333 50%,
+    var(--color-bg-tertiary) 75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.5s ease-in-out infinite;
+}
+
+@keyframes shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
 .gallery-tile-label {
   padding: 4px 2px;
   font-size: 11px;

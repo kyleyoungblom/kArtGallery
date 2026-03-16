@@ -4,6 +4,26 @@ All notable changes to kArtGallery will be documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.2.0] - 2026-03-16
+
+### Added
+
+- Sharp-based thumbnail pipeline with worker thread pool (one per CPU core - 1)
+- Thumbnails cached as 400px JPEGs in app data directory
+- Batch notification system: tiles refresh as thumbnails become available
+- Loading shimmer animation on tiles waiting for thumbnail generation
+- Pinned folder: last-opened folder auto-loads on next app launch
+- `dev.command` launcher for double-click from Finder
+
+### Fixed
+
+- Files not appearing after folder scan (scanVersion counter fix)
+- Tiles not updating when thumbnails generate after initial load
+
+### Changed
+
+- Removed all border-radius for rectangular corners
+
 ## [0.1.0] - 2026-03-16
 
 ### Added

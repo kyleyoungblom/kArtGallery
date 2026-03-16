@@ -28,6 +28,34 @@ let totalJobs = 0
 let completedJobs = 0
 let isProcessing = false
 
+// Batch notification: instead of sending one IPC event per thumbnail (which
+// would flood the renderer with thousands of events), we accumulate ready
+// file IDs and flush them in batches. This is a common pattern called
+// "debounced batching" — it balances freshness against overhead.
+let readyFileIds: number[] = []
+let flushTimer: ReturnType<typeof setTimeout> | null = null
+const FLUSH_INTERVAL_MS = 300
+
+function flushReadyNotifications(): void {
+  if (readyFileIds.length === 0) return
+
+  const batch = readyFileIds
+  readyFileIds = []
+
+  const windows = BrowserWindow.getAllWindows()
+  for (const win of windows) {
+    win.webContents.send('thumbnails:ready', batch)
+  }
+}
+
+function scheduleFlush(): void {
+  if (flushTimer) return
+  flushTimer = setTimeout(() => {
+    flushTimer = null
+    flushReadyNotifications()
+  }, FLUSH_INTERVAL_MS)
+}
+
 function getWorkerPath(): string {
   // In development, the worker is compiled by electron-vite to the out/ directory.
   // We need to resolve the path relative to the compiled main process file.
@@ -44,7 +72,11 @@ function createWorker(): Worker {
       updateThumbnail(result.fileId, result.outputPath, result.width, result.height)
       completedJobs++
 
-      // Notify the renderer of progress
+      // Queue this file ID for batch notification to the renderer
+      readyFileIds.push(result.fileId)
+      scheduleFlush()
+
+      // Also send overall progress
       const windows = BrowserWindow.getAllWindows()
       for (const win of windows) {
         win.webContents.send('thumbnails:progress', {
@@ -73,6 +105,12 @@ function processNextJob(worker: Worker): void {
     // Check if all workers are idle — if so, processing is complete
     if (activeJobs === 0) {
       isProcessing = false
+      // Flush any remaining thumbnail-ready notifications
+      if (flushTimer) {
+        clearTimeout(flushTimer)
+        flushTimer = null
+      }
+      flushReadyNotifications()
     }
     return
   }

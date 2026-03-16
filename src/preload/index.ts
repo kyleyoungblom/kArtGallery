@@ -24,6 +24,7 @@ export interface ElectronAPI {
   // Event listeners (main -> renderer)
   onScanProgress: (callback: (progress: { scanned: number; total: number; currentFile: string }) => void) => () => void
   onThumbnailProgress: (callback: (progress: { generated: number; total: number }) => void) => () => void
+  onThumbnailsReady: (callback: (fileIds: number[]) => void) => () => void
   onFilesChanged: (callback: (changes: { added: string[]; removed: string[]; modified: string[] }) => void) => () => void
 }
 
@@ -53,6 +54,12 @@ contextBridge.exposeInMainWorld('api', {
     const handler = (_event: Electron.IpcRendererEvent, progress: { generated: number; total: number }) => callback(progress)
     ipcRenderer.on('thumbnails:progress', handler)
     return () => ipcRenderer.removeListener('thumbnails:progress', handler)
+  },
+
+  onThumbnailsReady: (callback: (fileIds: number[]) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, fileIds: number[]) => callback(fileIds)
+    ipcRenderer.on('thumbnails:ready', handler)
+    return () => ipcRenderer.removeListener('thumbnails:ready', handler)
   },
 
   onFilesChanged: (callback: (changes: { added: string[]; removed: string[]; modified: string[] }) => void) => {

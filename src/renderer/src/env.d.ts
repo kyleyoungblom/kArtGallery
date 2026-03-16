@@ -15,6 +15,7 @@ interface ElectronAPI {
   setPreference: (key: string, value: string) => Promise<void>
   onScanProgress: (callback: (progress: import('./types/models').ScanProgress) => void) => () => void
   onThumbnailProgress: (callback: (progress: import('./types/models').ThumbnailProgress) => void) => () => void
+  onThumbnailsReady: (callback: (fileIds: number[]) => void) => () => void
   onFilesChanged: (callback: (changes: { added: string[]; removed: string[]; modified: string[] }) => void) => () => void
 }
 

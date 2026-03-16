@@ -2,10 +2,6 @@ import { useState, useEffect } from 'react'
 import { useGalleryStore } from '../../stores/gallery.store'
 import type { FileEntry } from '../../types/models'
 
-// Each tile lazily loads its thumbnail. The tile renders a placeholder first,
-// then requests the thumbnail path via IPC. This ensures the grid can display
-// thousands of tiles immediately — only visible tiles trigger image loads.
-
 interface GalleryTileProps {
   data: FileEntry
   width: number
@@ -14,25 +10,45 @@ interface GalleryTileProps {
 export function GalleryTile({ data, width }: GalleryTileProps): JSX.Element {
   const [imageSrc, setImageSrc] = useState<string | null>(null)
   const [loaded, setLoaded] = useState(false)
+  const [hasCachedThumb, setHasCachedThumb] = useState(false)
   const cropToAspect = useGalleryStore((s) => s.cropToAspect)
 
+  // Initial thumbnail request
   useEffect(() => {
     let cancelled = false
 
     window.api.getThumbnail(data.id).then((thumbPath) => {
-      if (!cancelled && thumbPath) {
-        // Use our custom protocol to load files securely
-        setImageSrc(`local-file://${thumbPath}`)
+      if (cancelled || !thumbPath) return
+      setImageSrc(`local-file://${thumbPath}`)
+      // Heuristic: if the path contains the file's ID followed by .jpg,
+      // it's a cached thumbnail. Otherwise it's the original file fallback.
+      setHasCachedThumb(thumbPath.endsWith(`${data.id}.jpg`))
+    })
+
+    return () => { cancelled = true }
+  }, [data.id])
+
+  // Listen for thumbnail-ready notifications. When this tile's thumbnail
+  // finishes generating, re-request it to swap from fallback to cached version.
+  // This is why thumbnails "pop in" progressively after a scan.
+  useEffect(() => {
+    // If we already have the cached thumbnail, no need to listen
+    if (hasCachedThumb) return
+
+    const unsubscribe = window.api.onThumbnailsReady((readyIds) => {
+      if (readyIds.includes(data.id)) {
+        window.api.getThumbnail(data.id).then((thumbPath) => {
+          if (thumbPath) {
+            setImageSrc(`local-file://${thumbPath}`)
+            setHasCachedThumb(true)
+            setLoaded(false) // Reset so fade-in plays again
+          }
+        })
       }
     })
 
-    // Cleanup function: if the component unmounts before the thumbnail loads
-    // (e.g., user scrolls past it), we cancel the state update to avoid
-    // React's "can't update unmounted component" warning.
-    return () => {
-      cancelled = true
-    }
-  }, [data.id])
+    return unsubscribe
+  }, [data.id, hasCachedThumb])
 
   const tileHeight = cropToAspect ? width : undefined
 
@@ -52,7 +68,7 @@ export function GalleryTile({ data, width }: GalleryTileProps): JSX.Element {
             loading="lazy"
           />
         ) : (
-          <div className="gallery-tile-placeholder" />
+          <div className="gallery-tile-placeholder gallery-tile-placeholder--loading" />
         )}
       </div>
       <div className="gallery-tile-label" title={data.filename}>

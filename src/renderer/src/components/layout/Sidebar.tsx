@@ -16,7 +16,7 @@ function FolderTreeItem({
   selectedPath: string | null
   onSelect: (path: string) => void
 }): JSX.Element {
-  const [expanded, setExpanded] = useState(depth < 2) // Auto-expand first 2 levels
+  const [expanded, setExpanded] = useState(depth < 2)
   const hasChildren = node.children.length > 0
   const isSelected = node.path === selectedPath
 
@@ -56,38 +56,50 @@ function FolderTreeItem({
   )
 }
 
+// Extract the scan workflow so both "Open Folder" and "restore on startup"
+// can share it. Duplication here would mean bugs get fixed in one path
+// but not the other — a classic source of subtle issues.
+async function loadFolder(folderPath: string): Promise<void> {
+  const store = useGalleryStore.getState()
+  store.setRootPath(folderPath)
+  store.setCurrentPath(folderPath)
+  store.setIsScanning(true)
+
+  const [tree] = await Promise.all([
+    window.api.getFolderTree(folderPath),
+    window.api.scanFolder(folderPath)
+  ])
+
+  store.setFolderTree(tree as FolderNode)
+  store.setIsScanning(false)
+  store.incrementScanVersion()
+
+  // Persist as pinned folder so it auto-loads next session
+  window.api.setPreference('pinnedFolder', folderPath)
+}
+
 export function Sidebar(): JSX.Element {
-  const rootPath = useGalleryStore((s) => s.rootPath)
   const currentPath = useGalleryStore((s) => s.currentPath)
   const folderTree = useGalleryStore((s) => s.folderTree)
-  const setRootPath = useGalleryStore((s) => s.setRootPath)
   const setCurrentPath = useGalleryStore((s) => s.setCurrentPath)
-  const setFolderTree = useGalleryStore((s) => s.setFolderTree)
-  const setIsScanning = useGalleryStore((s) => s.setIsScanning)
-  const incrementScanVersion = useGalleryStore((s) => s.incrementScanVersion)
 
   const handlePickFolder = useCallback(async () => {
     const path = await window.api.pickFolder()
     if (!path) return
+    await loadFolder(path)
+  }, [])
 
-    setRootPath(path)
-    setCurrentPath(path)
-    setIsScanning(true)
-
-    // Fetch folder tree and scan in parallel
-    const [tree] = await Promise.all([
-      window.api.getFolderTree(path),
-      window.api.scanFolder(path)
-    ])
-
-    setFolderTree(tree as FolderNode)
-    setIsScanning(false)
-
-    // Bump scanVersion so useGalleryFiles re-fetches from the now-populated DB.
-    // We can't just call setCurrentPath again — zustand won't trigger an update
-    // if the value hasn't changed.
-    incrementScanVersion()
-  }, [setRootPath, setCurrentPath, setFolderTree, setIsScanning, incrementScanVersion])
+  // On startup, check for a pinned folder and auto-load it.
+  // This means the app opens exactly where you left off — no
+  // re-selecting your Art folder every time.
+  useEffect(() => {
+    window.api.getPreferences().then((prefs) => {
+      const pinned = prefs['pinnedFolder']
+      if (pinned) {
+        loadFolder(pinned)
+      }
+    })
+  }, [])
 
   // Listen for scan progress events
   useEffect(() => {
