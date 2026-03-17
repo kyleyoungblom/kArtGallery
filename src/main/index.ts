@@ -1,4 +1,5 @@
 import { app, BrowserWindow, protocol, net, nativeImage } from 'electron'
+import { pathToFileURL } from 'url'
 
 // Disable Chromium's built-in pinch-to-zoom at the engine level.
 // On macOS, trackpad pinch fires wheel events with ctrlKey: true. Chromium
@@ -39,12 +40,17 @@ protocol.registerSchemesAsPrivileged([
 ])
 
 function createWindow(): void {
+  // macOS: launch fullscreen (hides traffic lights, but they reappear on hover).
+  // Windows: launch maximized instead — fullscreen hides the native title bar
+  // entirely and there's no hover-to-reveal, so the user loses min/max/close.
+  const isMac = process.platform === 'darwin'
+
   const mainWindow = new BrowserWindow({
     width: 1400,
     height: 900,
     minWidth: 800,
     minHeight: 600,
-    fullscreen: true,
+    fullscreen: isMac,
     icon: path.join(__dirname, '../../resources/icon.png'),
     webPreferences: {
       preload: path.join(__dirname, '../preload/index.js'),
@@ -54,6 +60,12 @@ function createWindow(): void {
       nodeIntegration: false // Extra safety: no require() in renderer
     }
   })
+
+  // On non-macOS platforms, maximize the window so it fills the screen
+  // while keeping the native title bar with min/max/close buttons.
+  if (!isMac) {
+    mainWindow.maximize()
+  }
 
   // Prevent Electron's default pinch/Ctrl+scroll zoom so our custom tile
   // scaling (useGalleryZoom) handles it instead. Must run after page loads
@@ -85,9 +97,13 @@ app.whenReady().then(() => {
   // When the renderer loads <img src="local-file:///path/to/image.jpg">,
   // this handler reads the file from disk and streams it back.
   protocol.handle('local-file', (request) => {
-    // Strip the protocol prefix to get the file path
+    // Strip the protocol prefix to get the file path.
+    // On Windows, paths look like C:\Users\... which can't be naively
+    // prepended with file:// (needs file:///C:/Users/... with forward slashes).
+    // Node's pathToFileURL handles all the edge cases: drive letters, spaces,
+    // special characters, and OS-specific separators.
     const filePath = decodeURIComponent(request.url.replace('local-file://', ''))
-    return net.fetch(`file://${filePath}`)
+    return net.fetch(pathToFileURL(filePath).href)
   })
 
   // Set the dock icon and app name for dev mode. In production builds,

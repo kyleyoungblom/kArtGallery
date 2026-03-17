@@ -25,6 +25,7 @@ export const DEFAULT_SHORTCUTS: ShortcutDefinition[] = [
   { id: 'switchFocus', label: 'Switch Focus', defaultKey: 'tab', scope: 'global' },
   { id: 'toggleToolbar', label: 'Toggle Toolbar', defaultKey: 'cmd+t', scope: 'global' },
   { id: 'toggleStatusbar', label: 'Toggle Status Bar', defaultKey: 'cmd+/', scope: 'global' },
+  { id: 'toggleFullscreen', label: 'Toggle Fullscreen', defaultKey: 'f11', scope: 'global' },
 
   // Gallery shortcuts (only when gallery has focus)
   { id: 'navLeft', label: 'Navigate Left', defaultKey: 'arrowleft', scope: 'gallery' },

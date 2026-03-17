@@ -243,6 +243,9 @@ if (parentPort) {
       // Compute perceptual hash for duplicate detection.
       // For PSD files that returned composite data, hash from the raw RGBA.
       // For regular images, hash from the source file (sharp handles decoding).
+      // If the source can't be hashed (e.g., sips-only formats), fall back to
+      // hashing the generated thumbnail JPEG — it's resized, but the dHash is
+      // relative (compares adjacent pixels) so it still works for dedup.
       let phash: string | undefined
       try {
         if (dims.compositeRGBA && dims.compositeWidth && dims.compositeHeight) {
@@ -251,8 +254,14 @@ if (parentPort) {
           phash = await computeDHash(job.sourcePath)
         }
       } catch {
-        // Hash computation failure is non-fatal — thumbnail still succeeds.
-        // The file just won't participate in duplicate detection.
+        // Source file unreadable by sharp (e.g., old BMP/TIFF handled by sips).
+        // Hash the thumbnail JPEG instead — slightly less accurate since it's
+        // resized, but far better than no hash (which causes re-queuing loops).
+        try {
+          phash = await computeDHash(job.outputPath)
+        } catch {
+          // Truly unhashable — file won't participate in duplicate detection.
+        }
       }
 
       const response: ThumbnailResult = {

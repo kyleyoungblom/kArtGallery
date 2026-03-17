@@ -67,6 +67,11 @@ export function useGalleryKeyboard(
         store.toggleStatusbar()
         return
       }
+      if (action === 'toggleFullscreen') {
+        e.preventDefault()
+        window.api.toggleFullscreen()
+        return
+      }
       if (action === 'switchFocus') {
         e.preventDefault()
         const newRegion = store.focusRegion === 'gallery' ? 'sidebar' : 'gallery'

@@ -22,6 +22,9 @@ release/
 *.msi
 *.zip
 
+# Cross-platform build temp files
+.prebuild-tmp/
+
 # Environment
 .env
 .env.local

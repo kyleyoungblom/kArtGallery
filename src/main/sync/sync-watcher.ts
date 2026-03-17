@@ -120,6 +120,17 @@ export function initSync(): void {
 }
 
 /**
+ * Restart sync: stop any existing watcher and reinitialize.
+ * Called when sync settings change at runtime (e.g., user picks a new event
+ * log path in Settings). This avoids requiring an app restart — we tear down
+ * the old watcher (if any) and spin up a new one with the latest config.
+ */
+export function restartSync(): void {
+  stopSyncWatcher()
+  initSync()
+}
+
+/**
  * Shutdown sync: stop watching and clean up.
  * Called on app quit.
  */

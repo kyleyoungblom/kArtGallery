@@ -116,6 +116,24 @@ export function StatusBar(): JSX.Element {
           </span>
         ) : (
           <span className="statusbar-idle">
+            {/* Sync dot: green = configured & healthy, red = conflicts */}
+            {syncStatus?.configured && (
+              <span
+                className={
+                  'statusbar-sync-dot' +
+                  (syncStatus.pendingConflicts > 0
+                    ? ' statusbar-sync-dot--conflict'
+                    : ' statusbar-sync-dot--ok')
+                }
+                title={
+                  syncStatus.pendingConflicts > 0
+                    ? `${syncStatus.pendingConflicts} sync conflict(s) — check Activity Log`
+                    : syncStatus.lastSyncAt
+                      ? `Sync enabled · last synced ${formatRelativeTime(syncStatus.lastSyncAt)}`
+                      : 'Sync enabled'
+                }
+              />
+            )}
             {fileCount} images
             {storageStats && (
               <span className="statusbar-storage">
@@ -127,25 +145,6 @@ export function StatusBar(): JSX.Element {
       </div>
 
       <div className="statusbar-right">
-        {/* Sync status indicator — ambient, low visual weight */}
-        {syncStatus?.configured && (
-          <span
-            className={`statusbar-sync ${syncStatus.pendingConflicts > 0 ? 'statusbar-sync--conflict' : ''}`}
-            title={
-              syncStatus.pendingConflicts > 0
-                ? `${syncStatus.pendingConflicts} sync conflict(s) — check Activity Log`
-                : syncStatus.lastSyncAt
-                  ? `Last synced ${formatRelativeTime(syncStatus.lastSyncAt)}`
-                  : 'Sync enabled'
-            }
-          >
-            <span className="statusbar-sync-icon">{'\u21C5'}</span>
-            {syncStatus.pendingConflicts > 0 && (
-              <span className="statusbar-sync-badge">{syncStatus.pendingConflicts}</span>
-            )}
-          </span>
-        )}
-
         <input
           type="range"
           className="statusbar-slider"

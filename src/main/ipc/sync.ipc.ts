@@ -1,8 +1,11 @@
+import fs from 'fs'
+import path from 'path'
 import { ipcMain, dialog, BrowserWindow } from 'electron'
 import { getSetting } from '../config/settings'
 import { setPreference } from '../db/repositories/preferences.repo'
 import { APP_DEFAULTS } from '../config/defaults'
 import { getDeviceId, isSyncConfigured, getEventLogPath } from '../sync/event-emitter'
+import { restartSync } from '../sync/sync-watcher'
 import { appLog } from '../utils/app-logger'
 
 // IPC handlers for cross-device sync configuration.
@@ -53,6 +56,12 @@ export function registerSyncHandlers(): void {
   })
 
   // Update a single sync setting.
+  //
+  // When the event log path changes, we do two extra things:
+  // 1. Create the file immediately (so the user can see it in their synced
+  //    folder right away, instead of waiting for the first syncable action)
+  // 2. Restart the sync watcher with the new path (so the user doesn't
+  //    need to quit and relaunch the app)
   ipcMain.handle('sync:set-config', (_event, key: string, value: string) => {
     // Only allow sync-related keys to prevent injection
     const allowedKeys = ['sync.eventLogPath', 'sync.rootMappings', 'sync.deviceName']
@@ -62,6 +71,32 @@ export function registerSyncHandlers(): void {
     }
     setPreference(key, value)
     appLog('info', 'sync', `Updated ${key}`)
+
+    // When event log path or root mappings change, reinitialize sync so
+    // the watcher picks up the new config without an app restart.
+    if (key === 'sync.eventLogPath' && value) {
+      // Create the file immediately if it doesn't exist yet.
+      // This gives the user instant visual confirmation in their Dropbox
+      // folder that sync is configured, rather than waiting for the first
+      // hide/stack action to create it.
+      try {
+        const dir = path.dirname(value)
+        if (!fs.existsSync(dir)) {
+          fs.mkdirSync(dir, { recursive: true })
+        }
+        if (!fs.existsSync(value)) {
+          fs.writeFileSync(value, '', 'utf-8')
+          appLog('info', 'sync', `Created empty event log: ${value}`)
+        }
+      } catch (err) {
+        appLog('warn', 'sync', `Failed to create event log file: ${err}`)
+      }
+
+      restartSync()
+    } else if (key === 'sync.rootMappings') {
+      // Root mappings changed — restart so importer can resolve new paths
+      restartSync()
+    }
   })
 
   // Get current sync status for the UI indicator.

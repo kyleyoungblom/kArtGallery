@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useGalleryStore } from '../../stores/gallery.store'
+import { loadFolder } from '../../utils/load-folder'
 import { DEFAULT_SHORTCUTS } from '../../config/keyboard-defaults'
 import { eventToKeyString, formatKeyString } from '../../config/shortcut-matcher'
 import type { SyncRootMapping } from '../../types/models'
@@ -158,6 +159,13 @@ export function SettingsModal(): JSX.Element {
     const updated = [...syncMappings, { localAbsolute: folder, syncRelative: suggestedAlias }]
     setSyncMappings(updated)
     window.api.setSyncConfig('sync.rootMappings', JSON.stringify(updated))
+
+    // Auto-add the folder to the sidebar so it's immediately browsable.
+    // This is what the user expects: adding a sync mapping for a folder
+    // means "I want to use this folder in the app." Without this, they'd
+    // have to separately open the folder via the sidebar — an unnecessary
+    // extra step that's easy to forget on a fresh machine.
+    loadFolder(folder)
   }, [syncMappings])
 
   const handleRemoveMapping = useCallback((index: number) => {

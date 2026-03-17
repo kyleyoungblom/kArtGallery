@@ -870,6 +870,11 @@
   color: var(--color-text-muted);
 }
 
+.statusbar-idle {
+  display: flex;
+  align-items: center;
+}
+
 .statusbar-processing {
   display: flex;
   align-items: center;
@@ -931,42 +936,27 @@
   background: var(--color-text);
 }
 
-/* ── Sync status indicator ── */
-.statusbar-sync {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  color: var(--color-text-muted);
-  font-size: 12px;
+/* ── Sync status dot ── */
+/* A tiny circle left of the image count. Grey = configured but no sync yet,
+   green = healthy, red = conflicts. Keeps the statusbar clean. */
+.statusbar-sync-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.25);
+  margin-right: 6px;
+  vertical-align: middle;
   cursor: default;
-  margin-right: 8px;
-  opacity: 0.6;
-  transition: opacity 0.15s;
+  flex-shrink: 0;
 }
 
-.statusbar-sync:hover {
-  opacity: 1;
+.statusbar-sync-dot--ok {
+  background: #4ead5b;
 }
 
-.statusbar-sync-icon {
-  font-size: 11px;
-}
-
-.statusbar-sync--conflict {
-  color: #d4a843;
-  opacity: 1;
-}
-
-.statusbar-sync-badge {
-  background: #d4a843;
-  color: #1e1e21;
-  font-size: 9px;
-  font-weight: 700;
-  padding: 0 4px;
-  border-radius: 8px;
-  line-height: 14px;
-  min-width: 14px;
-  text-align: center;
+.statusbar-sync-dot--conflict {
+  background: #d44343;
 }
 
 /* ========== Log Panel ========== */

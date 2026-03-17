@@ -1,4 +1,4 @@
-import { ipcMain, shell, app } from 'electron'
+import { ipcMain, shell, app, BrowserWindow } from 'electron'
 import fs from 'fs'
 import { resetAllThumbnails, getFailedFiles } from '../db/repositories/files.repo'
 import { getThumbnailCacheDir, getAppDataDir } from '../utils/paths'
@@ -74,6 +74,24 @@ export function registerMaintenanceHandlers(): void {
       }
     } catch { /* dir may not exist */ }
     return { dbSize, cacheSize }
+  })
+
+  // Toggle fullscreen for the focused window.
+  // On macOS this uses the native fullscreen animation (traffic lights reappear
+  // on hover). On Windows this enters true fullscreen (hides the title bar).
+  // Returning the new state lets the renderer update its UI indicator.
+  ipcMain.handle('window:toggle-fullscreen', (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender)
+    if (!win) return false
+    const isFullScreen = win.isFullScreen()
+    win.setFullScreen(!isFullScreen)
+    return !isFullScreen
+  })
+
+  // Get the current fullscreen state so the renderer can initialize correctly.
+  ipcMain.handle('window:is-fullscreen', (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender)
+    return win?.isFullScreen() ?? false
   })
 
   // Dev: restart the app (relaunch + quit). Useful for testing new builds

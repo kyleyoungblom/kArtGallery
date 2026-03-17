@@ -58,6 +58,10 @@ export interface ElectronAPI {
   openDataFolder: () => Promise<void>
   restartApp: () => Promise<void>
 
+  // Window
+  toggleFullscreen: () => Promise<boolean>
+  isFullscreen: () => Promise<boolean>
+
   // Shell
   showItemInFolder: (filePath: string) => void
   openFolder: (folderPath: string) => void
@@ -138,6 +142,9 @@ contextBridge.exposeInMainWorld('api', {
   getStorageStats: () => ipcRenderer.invoke('maintenance:get-storage-stats'),
   openDataFolder: () => ipcRenderer.invoke('maintenance:open-data-folder'),
   restartApp: () => ipcRenderer.invoke('maintenance:restart-app'),
+
+  toggleFullscreen: () => ipcRenderer.invoke('window:toggle-fullscreen'),
+  isFullscreen: () => ipcRenderer.invoke('window:is-fullscreen'),
 
   showItemInFolder: (filePath: string) => ipcRenderer.invoke('shell:show-item-in-folder', filePath),
   openFolder: (folderPath: string) => ipcRenderer.invoke('shell:open-folder', folderPath),

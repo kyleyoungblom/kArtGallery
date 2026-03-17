@@ -7,6 +7,7 @@ import { getThumbnailCacheDir } from '../utils/paths'
 import { getFilesNeedingThumbnails, updateThumbnail, markThumbnailFailed, resetFailedThumbnails, updateFileHash, resetFilesNeedingHashes } from '../db/repositories/files.repo'
 import { isSharpSupported, isPsd } from '../utils/supported-formats'
 import { appLog } from '../utils/app-logger'
+import { setPreference } from '../db/repositories/preferences.repo'
 import { APP_DEFAULTS } from '../config/defaults'
 import { getSetting } from '../config/settings'
 import type { ThumbnailJob, ThumbnailResult } from './thumbnail-worker'
@@ -195,13 +196,20 @@ export function startThumbnailGeneration(): void {
     appLog('info', 'thumbnails', `Re-queued ${requeued} previously-failed files for thumbnail generation`)
   }
 
-  // Backfill: re-queue files that have thumbnails but no perceptual hash.
-  // This happens after the phash column is added (migration 3) — existing
-  // thumbnailed files need to go through the pipeline again to get hashed.
-  // The thumbnail JPEG gets overwritten with an identical file — harmless.
-  const hashBackfill = resetFilesNeedingHashes()
-  if (hashBackfill > 0) {
-    appLog('info', 'thumbnails', `Re-queued ${hashBackfill} files for perceptual hash computation`)
+  // One-time backfill: re-queue files that have thumbnails but no perceptual
+  // hash. This was needed after migration 3 added the phash column — existing
+  // thumbnailed files needed to go through the pipeline again to get hashed.
+  //
+  // We only run this ONCE (tracked by a preference flag). Without this guard,
+  // files where hash computation permanently fails (e.g., formats sharp can't
+  // decode) would be re-queued on every single startup — generating ~160
+  // thumbnails anew each time the app launches.
+  if (!getSetting('hashBackfillComplete', '')) {
+    const hashBackfill = resetFilesNeedingHashes()
+    if (hashBackfill > 0) {
+      appLog('info', 'thumbnails', `One-time backfill: re-queued ${hashBackfill} files for perceptual hash computation`)
+    }
+    setPreference('hashBackfillComplete', '1')
   }
 
   const files = getFilesNeedingThumbnails()

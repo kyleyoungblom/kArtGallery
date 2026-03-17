@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useGalleryStore } from '../../stores/gallery.store'
+import { loadFolder } from '../../utils/load-folder'
 import { ContextMenu } from './ContextMenu'
 import { FailedFilesModal } from './FailedFilesModal'
 import type { FolderNode, SortField, SortDirection, GroupBy } from '../../types/models'
@@ -165,27 +166,8 @@ function initExpandedPaths(node: FolderNode, depth = 0): string[] {
   return paths
 }
 
-// Extract the scan workflow so both "Open Folder" and "restore on startup"
-// can share it. Duplication here would mean bugs get fixed in one path
-// but not the other — a classic source of subtle issues.
-async function loadFolder(folderPath: string): Promise<void> {
-  const store = useGalleryStore.getState()
-  store.addPinnedFolder(folderPath)
-  store.setCurrentPath(folderPath)
-  store.setIsScanning(true)
-
-  const [tree] = await Promise.all([
-    window.api.getFolderTree(folderPath),
-    window.api.scanFolder(folderPath)
-  ])
-
-  store.setFolderTreeForRoot(folderPath, tree as FolderNode)
-  store.setIsScanning(false)
-  store.incrementScanVersion()
-
-  // Persist pinned folders list
-  window.api.setPreference('pinnedFolders', JSON.stringify(useGalleryStore.getState().pinnedFolders))
-}
+// loadFolder is now in ../../utils/load-folder.ts so both Sidebar and
+// SettingsModal (sync mapping auto-add) can share the same workflow.
 
 export function Sidebar(): JSX.Element {
   const currentPath = useGalleryStore((s) => s.currentPath)
