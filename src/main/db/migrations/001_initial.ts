@@ -61,6 +61,40 @@ const MIGRATIONS: { version: number; up: (db: Database.Database) => void }[] = [
         );
       `)
     }
+  },
+  {
+    version: 2,
+    up: (db) => {
+      // Store the reason a thumbnail failed so users can diagnose issues.
+      // Existing failed rows will have thumbnail_error = NULL (pre-existing failure).
+      db.exec(`ALTER TABLE files ADD COLUMN thumbnail_error TEXT`)
+    }
+  },
+  {
+    version: 3,
+    up: (db) => {
+      // Perceptual hash for duplicate detection. Stores a dHash as a hex string.
+      // NULL means hash hasn't been computed yet. Stored as TEXT (not INTEGER)
+      // because dHash values are unsigned — hex avoids sign issues and is debuggable.
+      db.exec(`
+        ALTER TABLE files ADD COLUMN phash TEXT;
+        CREATE INDEX idx_files_phash ON files(phash) WHERE phash IS NOT NULL;
+      `)
+    }
+  },
+  {
+    version: 4,
+    up: (db) => {
+      // Upgrade dHash from 64-bit (16 hex chars) to 256-bit (64 hex chars).
+      // The wider hash captures more spatial detail, dramatically reducing false
+      // positives where visually different images were grouped as "exact match."
+      // Clear all existing hashes so they're recomputed with the new algorithm.
+      // Also reset thumbnail_generated so the backfill logic re-queues them.
+      db.exec(`
+        UPDATE files SET phash = NULL, thumbnail_generated = 0
+        WHERE phash IS NOT NULL
+      `)
+    }
   }
 ]
 

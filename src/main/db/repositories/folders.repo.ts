@@ -43,3 +43,25 @@ export function getFolderByPath(folderPath: string): FolderRow | undefined {
     .prepare('SELECT * FROM folders WHERE path = ?')
     .get(folderPath) as FolderRow | undefined
 }
+
+// Rename a folder and all its subfolders by rewriting path prefixes.
+// Used by the file watcher when a folder is renamed in Finder.
+// Preserves all metadata (hidden flags, scan timestamps) since we update in-place.
+export function updateFolderPathPrefix(oldPrefix: string, newPrefix: string): number {
+  const result = getDb()
+    .prepare(`
+      UPDATE folders SET path = REPLACE(path, ?, ?)
+      WHERE path = ? OR path LIKE ? || '/%'
+    `)
+    .run(oldPrefix, newPrefix, oldPrefix, oldPrefix)
+  return result.changes
+}
+
+// Remove a folder and all its subfolders from the DB.
+// Used by the file watcher when a folder is deleted from disk.
+export function removeFoldersByPathPrefix(folderPath: string): number {
+  const result = getDb()
+    .prepare('DELETE FROM folders WHERE path = ? OR path LIKE ? || \'/%\'')
+    .run(folderPath, folderPath)
+  return result.changes
+}

@@ -2,8 +2,10 @@ import { ipcMain, dialog, BrowserWindow } from 'electron'
 import path from 'path'
 import { scanFolder } from '../scanner/folder-scanner'
 import { upsertFolder, updateLastScanned, getAllFolders } from '../db/repositories/folders.repo'
-import { upsertFiles, getFilesByFolder, getAllFiles } from '../db/repositories/files.repo'
+import { upsertFiles, getFilesByFolder, getAllFiles, getFileCountsByFolderPath } from '../db/repositories/files.repo'
 import { startThumbnailGeneration } from '../thumbnails/thumbnail-manager'
+import { watchFolder } from '../watcher/folder-watcher'
+import { appLog } from '../utils/app-logger'
 import type { FolderNode } from '../../renderer/src/types/models'
 import fs from 'fs'
 
@@ -51,9 +53,16 @@ export function registerFileHandlers(): void {
 
     updateLastScanned(rootFolder.id)
 
+    appLog('info', 'scanner', `Scan complete: ${result.files.length} images in ${result.subfolders.length + 1} folders`)
+
     // Kick off thumbnail generation in the background.
     // This runs in worker threads so it won't block the UI.
     startThumbnailGeneration()
+
+    // Start watching this folder tree for live filesystem changes.
+    // Uses chokidar with ignoreInitial: true so it only reacts to new changes,
+    // not the files we just scanned. If already watching, this is a no-op.
+    watchFolder(folderPath)
 
     return { fileCount: result.files.length, folderCount: result.subfolders.length }
   })
@@ -78,6 +87,12 @@ export function registerFileHandlers(): void {
 
   ipcMain.handle('gallery:get-folder-tree', (_event, rootPath: string) => {
     return buildFolderTree(rootPath)
+  })
+
+  // Returns a map of folder path → file count for the sidebar.
+  // Only counts visible files (not hidden, not failed thumbnails).
+  ipcMain.handle('gallery:get-folder-counts', () => {
+    return getFileCountsByFolderPath()
   })
 }
 

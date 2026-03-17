@@ -1,6 +1,14 @@
+import { Breadcrumb } from './components/layout/Breadcrumb'
 import { Sidebar } from './components/layout/Sidebar'
-import { Toolbar } from './components/layout/Toolbar'
+import { StatusBar } from './components/layout/StatusBar'
+import { LogPanel } from './components/layout/LogPanel'
+import { SelectionPill } from './components/layout/SelectionPill'
 import { GalleryGrid } from './components/gallery/GalleryGrid'
+import { Lightbox } from './components/gallery/Lightbox'
+import { InfoPanel } from './components/layout/InfoPanel'
+import { SettingsModal } from './components/layout/SettingsModal'
+import { DuplicateReviewModal } from './components/layout/DuplicateReviewModal'
+import { useGalleryStore } from './stores/gallery.store'
 import { initThumbnailNotifications } from './hooks/useThumbnailReady'
 
 // Initialize the single global IPC listener for thumbnail notifications.
@@ -8,13 +16,31 @@ import { initThumbnailNotifications } from './hooks/useThumbnailReady'
 initThumbnailNotifications()
 
 export default function App(): JSX.Element {
+  const sidebarCollapsed = useGalleryStore((s) => s.sidebarCollapsed)
+  const infoPanelOpen = useGalleryStore((s) => s.infoPanelOpen)
+  const settingsOpen = useGalleryStore((s) => s.settingsOpen)
+  const duplicateReviewOpen = useGalleryStore((s) => s.duplicateReviewOpen)
+
+  const layoutClasses = [
+    'app-layout',
+    sidebarCollapsed ? 'app-layout--sidebar-collapsed' : '',
+    infoPanelOpen ? 'app-layout--info-open' : ''
+  ].filter(Boolean).join(' ')
+
   return (
-    <div className="app-layout">
+    <div className={layoutClasses}>
       <Sidebar />
       <div className="app-main">
-        <Toolbar />
+        <Breadcrumb />
         <GalleryGrid />
+        <SelectionPill />
+        <LogPanel />
+        <StatusBar />
       </div>
+      <InfoPanel />
+      <Lightbox />
+      {settingsOpen && <SettingsModal />}
+      {duplicateReviewOpen && <DuplicateReviewModal />}
     </div>
   )
 }

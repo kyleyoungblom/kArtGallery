@@ -18,6 +18,7 @@ export interface FileEntry {
   stackOrder: number
   thumbnailPath: string | null
   thumbnailGenerated: boolean
+  thumbnailError: string | null
 }
 
 export interface FolderEntry {
@@ -42,6 +43,14 @@ export interface StackEntry {
   createdAt: string
 }
 
+// Extended file entry used in the gallery grid. When a file is a stack cover,
+// stackCount tells the tile to show a count badge. The underlying type is still
+// a FileEntry so masonic and all existing tile logic work unchanged.
+export interface GalleryItem extends FileEntry {
+  stackCount?: number       // Number of files in the stack (only set on collapsed cover)
+  isExpandedCover?: boolean // True for the cover file when viewing an expanded stack
+}
+
 export interface ScanProgress {
   scanned: number
   total: number
@@ -51,8 +60,35 @@ export interface ScanProgress {
 export interface ThumbnailProgress {
   generated: number
   total: number
+  currentFile: string
 }
 
-export type SortField = 'filename' | 'modifiedAt' | 'createdAt' | 'sizeBytes'
+export type SortField = 'filename' | 'modifiedAt' | 'createdAt' | 'sizeBytes' | 'folder'
 export type SortDirection = 'asc' | 'desc'
 export type GroupBy = 'none' | 'folder' | 'month' | 'year'
+
+// Duplicate detection types — returned from the main process via IPC
+
+export interface DuplicateFile {
+  id: number
+  path: string
+  filename: string
+  extension: string
+  sizeBytes: number
+  width: number | null
+  height: number | null
+  modifiedAt: string
+  createdAt: string
+  thumbnailPath: string | null
+  hidden: number
+  phash: string
+}
+
+export interface DuplicateGroup {
+  groupId: number
+  matchType: 'exact' | 'similar'
+  hammingDistance: number
+  matchReason: string
+  files: DuplicateFile[]
+  bestFileId: number
+}

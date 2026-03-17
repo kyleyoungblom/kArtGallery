@@ -1,5 +1,6 @@
 import { app } from 'electron'
 import path from 'path'
+import os from 'os'
 import fs from 'fs'
 
 // Centralize all path resolution in one place. This makes it easy to find
@@ -24,4 +25,8 @@ export function getDbPath(): string {
 
 export function getThumbnailCacheDir(): string {
   return ensureDir(path.join(getAppDataDir(), 'thumbnails'))
+}
+
+export function getPreviewCacheDir(): string {
+  return ensureDir(path.join(os.tmpdir(), 'kArtGallery-previews'))
 }

@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#4a6fa5"/>
+      <stop offset="100%" stop-color="#2d4a7a"/>
+    </linearGradient>
+    <linearGradient id="mountain" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#8ab4f8"/>
+      <stop offset="100%" stop-color="#5b8bd4"/>
+    </linearGradient>
+  </defs>
+  <!-- Rounded square background -->
+  <rect width="1024" height="1024" rx="220" fill="url(#bg)"/>
+  <!-- Picture frame (outer) -->
+  <rect x="172" y="222" width="680" height="580" rx="32" fill="none" stroke="#d0dff0" stroke-width="40"/>
+  <!-- Inner canvas area -->
+  <rect x="212" y="262" width="600" height="500" rx="12" fill="#1a2744"/>
+  <!-- Sun/circle -->
+  <circle cx="360" cy="410" r="60" fill="#f0c850"/>
+  <!-- Mountains -->
+  <path d="M212 762 L420 480 L560 620 L640 540 L812 762 Z" fill="url(#mountain)" opacity="0.85"/>
+  <!-- Small mountain accent -->
+  <path d="M212 762 L350 580 L500 762 Z" fill="#6a9fd8" opacity="0.7"/>
+</svg>

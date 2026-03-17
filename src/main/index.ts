@@ -1,8 +1,26 @@
-import { app, BrowserWindow, protocol, net } from 'electron'
+import { app, BrowserWindow, protocol, net, nativeImage } from 'electron'
+
+// Disable Chromium's built-in pinch-to-zoom at the engine level.
+// On macOS, trackpad pinch fires wheel events with ctrlKey: true. Chromium
+// normally intercepts these *before* any DOM event listener (even capture-phase)
+// to handle its native page zoom. This switch prevents that interception entirely,
+// so our renderer-side useGalleryZoom hook can use pinch events for tile resizing.
+app.commandLine.appendSwitch('disable-pinch')
 import path from 'path'
+
+// Pin the userData path so it stays stable across app renames.
+// Electron derives userData from productName in package.json — so renaming the
+// app (e.g. "kArtGallery" → "Art Gallery") would silently change the data
+// directory, causing the app to lose its database, thumbnails, and preferences.
+// By hardcoding the path to the original name, data survives display-name changes.
+// Must run before anything calls app.getPath('userData') (e.g. paths.ts).
+app.setPath('userData', path.join(app.getPath('appData'), 'kArtGallery'))
+import fs from 'fs'
+import os from 'os'
 import { initDb, closeDb } from './db/connection'
 import { registerAllHandlers } from './ipc/handlers'
 import { shutdownWorkers } from './thumbnails/thumbnail-manager'
+import { shutdownWatcher } from './watcher/folder-watcher'
 
 // Register a custom protocol to serve local files securely.
 // By default, Electron's renderer can't load file:// URLs for security reasons.
@@ -25,6 +43,8 @@ function createWindow(): void {
     height: 900,
     minWidth: 800,
     minHeight: 600,
+    fullscreen: true,
+    icon: path.join(__dirname, '../../resources/icon.png'),
     webPreferences: {
       preload: path.join(__dirname, '../preload/index.js'),
       // These security settings are Electron best practices:
@@ -32,6 +52,22 @@ function createWindow(): void {
       contextIsolation: true, // Prevents renderer from accessing Node.js directly
       nodeIntegration: false // Extra safety: no require() in renderer
     }
+  })
+
+  // Prevent Electron's default pinch/Ctrl+scroll zoom so our custom tile
+  // scaling (useGalleryZoom) handles it instead. Must run after page loads
+  // because setVisualZoomLevelLimits requires an active renderer.
+  mainWindow.webContents.on('did-finish-load', () => {
+    mainWindow.webContents.setZoomFactor(1)
+    mainWindow.webContents.setVisualZoomLevelLimits(1, 1)
+  })
+
+  // Lock zoom factor to 1. Chromium still intercepts Ctrl+scroll (trackpad
+  // pinch) and changes zoomFactor even with visual limits set. This resets
+  // it immediately so the page never actually zooms — our renderer-side
+  // useGalleryZoom hook handles tile resizing instead.
+  mainWindow.webContents.on('zoom-changed', () => {
+    mainWindow.webContents.setZoomFactor(1)
   })
 
   // In development, load from Vite's dev server (with HMR).
@@ -53,6 +89,16 @@ app.whenReady().then(() => {
     return net.fetch(`file://${filePath}`)
   })
 
+  // Set the dock icon and app name for dev mode. In production builds,
+  // electron-builder handles this via the packaged .app bundle. But in dev
+  // mode, Electron uses its default icon and "Electron" process name.
+  if (process.platform === 'darwin') {
+    const iconPath = path.join(__dirname, '../../resources/icon.png')
+    if (fs.existsSync(iconPath)) {
+      app.dock.setIcon(nativeImage.createFromPath(iconPath))
+    }
+  }
+
   initDb()
   registerAllHandlers()
   createWindow()
@@ -65,8 +111,19 @@ app.whenReady().then(() => {
   })
 })
 
+// Clean up preview cache on quit
+app.on('will-quit', () => {
+  try {
+    const previewDir = path.join(os.tmpdir(), 'kArtGallery-previews')
+    if (fs.existsSync(previewDir)) {
+      fs.rmSync(previewDir, { recursive: true, force: true })
+    }
+  } catch { /* best effort */ }
+})
+
 // Quit when all windows are closed (except on macOS, where apps stay in dock)
 app.on('window-all-closed', () => {
+  shutdownWatcher()
   shutdownWorkers()
   closeDb()
   if (process.platform !== 'darwin') {

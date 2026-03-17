@@ -16,8 +16,9 @@ export default defineConfig({
     plugins: [
       // This plugin marks all node_modules as external for the main process build.
       // Native modules like better-sqlite3 can't be bundled by Vite — they need
-      // to be loaded as-is at runtime. This plugin handles that automatically.
-      externalizeDepsPlugin()
+      // to be loaded as-is at runtime. @webtoon/psd is excluded because it's
+      // ESM-only and needs to be bundled into the CJS worker output.
+      externalizeDepsPlugin({ exclude: ['@webtoon/psd'] })
     ],
     build: {
       rollupOptions: {

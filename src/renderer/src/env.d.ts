@@ -13,10 +13,17 @@ interface ElectronAPI {
   setHidden: (id: number, type: 'file' | 'folder', hidden: boolean) => Promise<void>
   getPreferences: () => Promise<Record<string, string>>
   setPreference: (key: string, value: string) => Promise<void>
+  resetThumbnails: () => Promise<{ resetCount: number; deletedFiles: number }>
+  getFailedFiles: () => Promise<import('./types/models').FileEntry[]>
+  openDataFolder: () => Promise<void>
+  restartApp: () => Promise<void>
+  showItemInFolder: (filePath: string) => void
+  openFolder: (folderPath: string) => void
   onScanProgress: (callback: (progress: import('./types/models').ScanProgress) => void) => () => void
   onThumbnailProgress: (callback: (progress: import('./types/models').ThumbnailProgress) => void) => () => void
   onThumbnailsReady: (callback: (fileIds: number[]) => void) => () => void
   onFilesChanged: (callback: (changes: { added: string[]; removed: string[]; modified: string[] }) => void) => () => void
+  onAppLog: (callback: (entry: { timestamp: string; level: string; source: string; message: string }) => void) => () => void
 }
 
 interface Window {
