@@ -10,12 +10,23 @@
     "postinstall": "electron-rebuild -f -w better-sqlite3,sharp",
     "typecheck:node": "tsc --noEmit -p tsconfig.node.json",
     "typecheck:web": "tsc --noEmit -p tsconfig.web.json",
-    "typecheck": "npm run typecheck:node && npm run typecheck:web"
+    "typecheck": "npm run typecheck:node && npm run typecheck:web",
+    "dist:mac": "npm run build && electron-builder --mac",
+    "dist:win": "npm run build && electron-builder --win --x64",
+    "dist": "npm run build && electron-builder --mac --win"
   },
   "build": {
-    "appId": "com.artgallery.app",
-    "productName": "Art Gallery",
+    "appId": "com.kartgallery.app",
+    "productName": "kArtGallery",
     "icon": "resources/icon.png",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "out/**/*",
+      "node_modules/**/*",
+      "resources/**/*"
+    ],
     "mac": {
       "icon": "resources/icon.icns",
       "target": [
