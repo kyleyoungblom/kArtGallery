@@ -3,7 +3,7 @@ import { useLogStore } from '../../stores/log.store'
 import { useGalleryStore } from '../../stores/gallery.store'
 
 // StatusBar sits at the bottom of the app. It shows:
-// Left:  Thumbnail progress when active, otherwise file count + storage stats
+// Left:  Thumbnail progress when active, otherwise file count + storage stats + sync status
 // Right: Grid size slider (tile size control)
 //
 // The log toggle has moved to the settings gear menu in the breadcrumb bar.
@@ -13,6 +13,15 @@ function formatSize(bytes: number): string {
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`
   if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
   return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`
+}
+
+// Format a relative time string (e.g., "just now", "2m ago", "1h ago")
+function formatRelativeTime(isoStr: string): string {
+  const diff = Date.now() - new Date(isoStr).getTime()
+  if (diff < 60_000) return 'just now'
+  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m ago`
+  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}h ago`
+  return `${Math.floor(diff / 86_400_000)}d ago`
 }
 
 export function StatusBar(): JSX.Element {
@@ -26,6 +35,11 @@ export function StatusBar(): JSX.Element {
   const scanVersion = useGalleryStore((s) => s.scanVersion)
 
   const [storageStats, setStorageStats] = useState<{ dbSize: number; cacheSize: number } | null>(null)
+  const [syncStatus, setSyncStatus] = useState<{
+    configured: boolean
+    lastSyncAt: string | null
+    pendingConflicts: number
+  } | null>(null)
 
   // Wire up IPC listeners once when the StatusBar mounts.
   useEffect(() => {
@@ -51,16 +65,38 @@ export function StatusBar(): JSX.Element {
       useGalleryStore.getState().incrementScanVersion()
     })
 
+    // Listen for sync events imported from other devices.
+    // Bump scanVersion so the gallery refreshes with any hidden/stack changes.
+    const unsubSync = window.api.onSyncEventsImported((info) => {
+      if (info.count > 0) {
+        useGalleryStore.getState().incrementScanVersion()
+      }
+      // Update sync status indicator
+      setSyncStatus((prev) => ({
+        configured: true,
+        lastSyncAt: new Date().toISOString(),
+        pendingConflicts: (prev?.pendingConflicts ?? 0) + info.conflicts
+      }))
+    })
+
     return () => {
       unsubLog()
       unsubProgress()
       unsubWatcher()
+      unsubSync()
     }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Fetch storage stats on mount and after scans
+  // Fetch storage stats and sync status on mount and after scans
   useEffect(() => {
     window.api.getStorageStats().then(setStorageStats)
+    window.api.getSyncStatus().then((status) => {
+      setSyncStatus({
+        configured: status.configured,
+        lastSyncAt: status.lastSyncAt,
+        pendingConflicts: status.pendingConflicts
+      })
+    })
   }, [scanVersion])
 
   const isProcessing = thumbnailProgress !== null && thumbnailProgress.generated < thumbnailProgress.total
@@ -91,6 +127,25 @@ export function StatusBar(): JSX.Element {
       </div>
 
       <div className="statusbar-right">
+        {/* Sync status indicator — ambient, low visual weight */}
+        {syncStatus?.configured && (
+          <span
+            className={`statusbar-sync ${syncStatus.pendingConflicts > 0 ? 'statusbar-sync--conflict' : ''}`}
+            title={
+              syncStatus.pendingConflicts > 0
+                ? `${syncStatus.pendingConflicts} sync conflict(s) — check Activity Log`
+                : syncStatus.lastSyncAt
+                  ? `Last synced ${formatRelativeTime(syncStatus.lastSyncAt)}`
+                  : 'Sync enabled'
+            }
+          >
+            <span className="statusbar-sync-icon">{'\u21C5'}</span>
+            {syncStatus.pendingConflicts > 0 && (
+              <span className="statusbar-sync-badge">{syncStatus.pendingConflicts}</span>
+            )}
+          </span>
+        )}
+
         <input
           type="range"
           className="statusbar-slider"
