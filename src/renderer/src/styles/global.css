@@ -1398,6 +1398,111 @@
   color: #d4a843;
 }
 
+/* ── Settings: shared input/button styles ── */
+
+.settings-input {
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  color: var(--color-text);
+  padding: 4px 8px;
+  font-size: 12px;
+  min-width: 0;
+  flex: 1;
+}
+
+.settings-input:focus {
+  outline: 1px solid var(--color-accent);
+  border-color: var(--color-accent);
+}
+
+.settings-input[readonly] {
+  opacity: 0.8;
+  cursor: default;
+}
+
+.settings-btn {
+  background: var(--color-bg-tertiary);
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  color: var(--color-text);
+  padding: 4px 10px;
+  font-size: 11px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.settings-btn:hover {
+  background: var(--color-bg-secondary);
+  border-color: var(--color-text-muted);
+}
+
+.settings-btn--danger {
+  color: #e06c75;
+  padding: 2px 6px;
+}
+
+.settings-btn--danger:hover {
+  background: rgba(224, 108, 117, 0.15);
+}
+
+.settings-control--path {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+/* ── Settings: Sync tab ── */
+
+.settings-mappings {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.settings-mapping-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.settings-mapping-path {
+  flex: 1;
+  min-width: 0;
+  font-size: 11px;
+  color: var(--color-text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-mapping-arrow {
+  color: var(--color-text-muted);
+  font-size: 12px;
+  flex-shrink: 0;
+}
+
+.settings-mapping-alias {
+  flex: 0 0 120px !important;
+}
+
+.settings-sync-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 16px;
+  font-size: 11px;
+  color: var(--color-text-muted);
+}
+
+.settings-sync-status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #5cb85c;
+}
+
 /* ========== Focus Containers ========== */
 
 .gallery-grid:focus,

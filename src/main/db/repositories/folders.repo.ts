@@ -10,6 +10,7 @@ export interface FolderRow {
   path: string
   hidden: number
   last_scanned: string | null
+  metadata_updated_at: string | null
 }
 
 export function upsertFolder(folderPath: string): FolderRow {
@@ -28,10 +29,32 @@ export function updateLastScanned(folderId: number): void {
     .run(new Date().toISOString(), folderId)
 }
 
+// Set a folder's hidden state and record the timestamp for sync conflict resolution.
 export function setFolderHidden(folderId: number, hidden: boolean): void {
   getDb()
-    .prepare('UPDATE folders SET hidden = ? WHERE id = ?')
-    .run(hidden ? 1 : 0, folderId)
+    .prepare('UPDATE folders SET hidden = ?, metadata_updated_at = ? WHERE id = ?')
+    .run(hidden ? 1 : 0, new Date().toISOString(), folderId)
+}
+
+// Set a folder's hidden state with a specific timestamp. Used by the sync importer.
+export function setFolderHiddenWithTimestamp(folderId: number, hidden: boolean, timestamp: string): void {
+  getDb()
+    .prepare('UPDATE folders SET hidden = ?, metadata_updated_at = ? WHERE id = ?')
+    .run(hidden ? 1 : 0, timestamp, folderId)
+}
+
+// Get a folder's metadata_updated_at timestamp for conflict resolution.
+export function getFolderMetadataTimestamp(folderId: number): string | null {
+  const row = getDb()
+    .prepare('SELECT metadata_updated_at FROM folders WHERE id = ?')
+    .get(folderId) as { metadata_updated_at: string | null } | undefined
+  return row?.metadata_updated_at ?? null
+}
+
+export function getFolderById(folderId: number): FolderRow | undefined {
+  return getDb()
+    .prepare('SELECT * FROM folders WHERE id = ?')
+    .get(folderId) as FolderRow | undefined
 }
 
 export function getAllFolders(): FolderRow[] {

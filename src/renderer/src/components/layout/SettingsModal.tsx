@@ -2,8 +2,19 @@ import { useState, useEffect, useCallback } from 'react'
 import { useGalleryStore } from '../../stores/gallery.store'
 import { DEFAULT_SHORTCUTS } from '../../config/keyboard-defaults'
 import { eventToKeyString, formatKeyString } from '../../config/shortcut-matcher'
+import type { SyncRootMapping } from '../../types/models'
 
-type SettingsTab = 'general' | 'shortcuts'
+// Data-driven tab system: add a new entry here to create a new tab.
+// No other structural changes needed — the tab bar and routing are
+// auto-generated from this array. Makes adding future tabs (Database
+// stats, Activity Log, etc.) trivial.
+const SETTINGS_TABS = [
+  { id: 'general', label: 'General' },
+  { id: 'shortcuts', label: 'Shortcuts' },
+  { id: 'sync', label: 'Sync' }
+] as const
+
+type SettingsTab = (typeof SETTINGS_TABS)[number]['id']
 
 export function SettingsModal(): JSX.Element {
   const closeSettings = useGalleryStore((s) => s.closeSettings)
@@ -24,11 +35,29 @@ export function SettingsModal(): JSX.Element {
   // Shortcuts tab: which action is being recorded (null = none)
   const [recordingAction, setRecordingAction] = useState<string | null>(null)
 
+  // Sync tab state
+  const [syncEventLogPath, setSyncEventLogPath] = useState('')
+  const [syncDeviceName, setSyncDeviceName] = useState('')
+  const [syncMappings, setSyncMappings] = useState<SyncRootMapping[]>([])
+  const [syncConfigured, setSyncConfigured] = useState(false)
+
   // Load current preferences on mount
   useEffect(() => {
     window.api.getPreferences().then((prefs) => {
       if (prefs['thumbnail.maxDimension']) setThumbMaxDim(Number(prefs['thumbnail.maxDimension']))
       if (prefs['thumbnail.jpegQuality']) setThumbQuality(Number(prefs['thumbnail.jpegQuality']))
+    })
+
+    // Load sync config
+    window.api.getSyncConfig().then((config) => {
+      setSyncEventLogPath(config.eventLogPath)
+      setSyncDeviceName(config.deviceName)
+      setSyncConfigured(config.configured)
+      try {
+        setSyncMappings(JSON.parse(config.rootMappings) as SyncRootMapping[])
+      } catch {
+        setSyncMappings([])
+      }
     })
   }, [])
 
@@ -102,6 +131,47 @@ export function SettingsModal(): JSX.Element {
     return null
   }, [keyboardShortcuts])
 
+  // ── Sync tab handlers ──
+
+  const handlePickEventLogPath = useCallback(async () => {
+    const result = await window.api.pickSyncLogPath()
+    if (result) {
+      setSyncEventLogPath(result)
+      await window.api.setSyncConfig('sync.eventLogPath', result)
+      setSyncConfigured(true)
+    }
+  }, [])
+
+  const handleDeviceNameChange = useCallback((value: string) => {
+    setSyncDeviceName(value)
+    window.api.setSyncConfig('sync.deviceName', value)
+  }, [])
+
+  const handleAddMapping = useCallback(async () => {
+    const folder = await window.api.pickSyncMappingFolder()
+    if (!folder) return
+
+    // Suggest a sync alias from the last path component
+    const parts = folder.replace(/\\/g, '/').split('/')
+    const suggestedAlias = parts[parts.length - 1] || 'Root'
+
+    const updated = [...syncMappings, { localAbsolute: folder, syncRelative: suggestedAlias }]
+    setSyncMappings(updated)
+    window.api.setSyncConfig('sync.rootMappings', JSON.stringify(updated))
+  }, [syncMappings])
+
+  const handleRemoveMapping = useCallback((index: number) => {
+    const updated = syncMappings.filter((_, i) => i !== index)
+    setSyncMappings(updated)
+    window.api.setSyncConfig('sync.rootMappings', JSON.stringify(updated))
+  }, [syncMappings])
+
+  const handleMappingAliasChange = useCallback((index: number, alias: string) => {
+    const updated = syncMappings.map((m, i) => i === index ? { ...m, syncRelative: alias } : m)
+    setSyncMappings(updated)
+    window.api.setSyncConfig('sync.rootMappings', JSON.stringify(updated))
+  }, [syncMappings])
+
   return (
     <div className="modal-overlay" onClick={closeSettings}>
       <div className="modal-content settings-modal" onClick={(e) => e.stopPropagation()}>
@@ -111,18 +181,15 @@ export function SettingsModal(): JSX.Element {
         </div>
 
         <div className="settings-tabs">
-          <button
-            className={`settings-tab ${tab === 'general' ? 'settings-tab--active' : ''}`}
-            onClick={() => setTab('general')}
-          >
-            General
-          </button>
-          <button
-            className={`settings-tab ${tab === 'shortcuts' ? 'settings-tab--active' : ''}`}
-            onClick={() => setTab('shortcuts')}
-          >
-            Shortcuts
-          </button>
+          {SETTINGS_TABS.map((t) => (
+            <button
+              key={t.id}
+              className={`settings-tab ${tab === t.id ? 'settings-tab--active' : ''}`}
+              onClick={() => setTab(t.id)}
+            >
+              {t.label}
+            </button>
+          ))}
         </div>
 
         <div className="settings-body">
@@ -229,6 +296,89 @@ export function SettingsModal(): JSX.Element {
                   </div>
                 )
               })}
+            </div>
+          )}
+
+          {tab === 'sync' && (
+            <div className="settings-section">
+              <h3 className="settings-section-title">Cross-Device Sync</h3>
+              <p className="settings-note">
+                Share hidden files, stacks, and other metadata between machines via an event log stored in a synced folder (e.g., Dropbox).
+              </p>
+
+              <div className="settings-row">
+                <label className="settings-label">Event log file</label>
+                <div className="settings-control settings-control--path">
+                  <input
+                    type="text"
+                    className="settings-input"
+                    value={syncEventLogPath}
+                    readOnly
+                    placeholder="Not configured"
+                    title={syncEventLogPath || 'Click Browse to select a location'}
+                  />
+                  <button className="settings-btn" onClick={handlePickEventLogPath}>
+                    Browse
+                  </button>
+                </div>
+              </div>
+
+              <div className="settings-row">
+                <label className="settings-label">Device name</label>
+                <div className="settings-control">
+                  <input
+                    type="text"
+                    className="settings-input"
+                    value={syncDeviceName}
+                    onChange={(e) => handleDeviceNameChange(e.target.value)}
+                    placeholder="e.g., Kyle's MacBook"
+                    title="A human-readable name for this machine (shown in conflict messages)"
+                  />
+                </div>
+              </div>
+
+              <h3 className="settings-section-title" style={{ marginTop: 18 }}>Path Mappings</h3>
+              <p className="settings-note">
+                Map local folders to sync aliases so events use relative paths that work across machines.
+              </p>
+
+              {syncMappings.length > 0 && (
+                <div className="settings-mappings">
+                  {syncMappings.map((mapping, i) => (
+                    <div key={i} className="settings-mapping-row">
+                      <span className="settings-mapping-path" title={mapping.localAbsolute}>
+                        {mapping.localAbsolute}
+                      </span>
+                      <span className="settings-mapping-arrow">{'\u2192'}</span>
+                      <input
+                        type="text"
+                        className="settings-input settings-mapping-alias"
+                        value={mapping.syncRelative}
+                        onChange={(e) => handleMappingAliasChange(i, e.target.value)}
+                        title="Sync alias — must match across all devices"
+                      />
+                      <button
+                        className="settings-btn settings-btn--danger"
+                        onClick={() => handleRemoveMapping(i)}
+                        title="Remove this mapping"
+                      >
+                        {'\u2715'}
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <button className="settings-btn" onClick={handleAddMapping}>
+                + Add Folder Mapping
+              </button>
+
+              {syncConfigured && (
+                <div className="settings-sync-status">
+                  <span className="settings-sync-status-dot" />
+                  Sync enabled
+                </div>
+              )}
             </div>
           )}
         </div>

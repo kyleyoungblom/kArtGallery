@@ -62,12 +62,32 @@ export interface ElectronAPI {
   showItemInFolder: (filePath: string) => void
   openFolder: (folderPath: string) => void
 
+  // Sync
+  pickSyncLogPath: () => Promise<string | null>
+  pickSyncMappingFolder: () => Promise<string | null>
+  getSyncConfig: () => Promise<{
+    eventLogPath: string
+    rootMappings: string
+    deviceName: string
+    deviceId: string
+    configured: boolean
+  }>
+  setSyncConfig: (key: string, value: string) => Promise<void>
+  getSyncStatus: () => Promise<{
+    configured: boolean
+    eventLogPath: string
+    deviceName: string
+    lastSyncAt: string | null
+    pendingConflicts: number
+  }>
+
   // Event listeners (main -> renderer)
   onScanProgress: (callback: (progress: { scanned: number; total: number; currentFile: string }) => void) => () => void
   onThumbnailProgress: (callback: (progress: { generated: number; total: number; currentFile: string }) => void) => () => void
   onThumbnailsReady: (callback: (fileIds: number[]) => void) => () => void
   onFilesChanged: (callback: (changes: { added: string[]; removed: string[]; modified: string[] }) => void) => () => void
   onAppLog: (callback: (entry: { timestamp: string; level: string; source: string; message: string }) => void) => () => void
+  onSyncEventsImported: (callback: (info: { count: number; conflicts: number }) => void) => () => void
 }
 
 contextBridge.exposeInMainWorld('api', {
@@ -122,6 +142,13 @@ contextBridge.exposeInMainWorld('api', {
   showItemInFolder: (filePath: string) => ipcRenderer.invoke('shell:show-item-in-folder', filePath),
   openFolder: (folderPath: string) => ipcRenderer.invoke('shell:open-folder', folderPath),
 
+  // Sync
+  pickSyncLogPath: () => ipcRenderer.invoke('sync:pick-event-log-path'),
+  pickSyncMappingFolder: () => ipcRenderer.invoke('sync:pick-mapping-folder'),
+  getSyncConfig: () => ipcRenderer.invoke('sync:get-config'),
+  setSyncConfig: (key: string, value: string) => ipcRenderer.invoke('sync:set-config', key, value),
+  getSyncStatus: () => ipcRenderer.invoke('sync:get-status'),
+
   // Event listeners return an unsubscribe function. This pattern prevents
   // memory leaks — when a React component unmounts, it calls the returned
   // function to stop listening. Without this, old listeners accumulate.
@@ -153,5 +180,11 @@ contextBridge.exposeInMainWorld('api', {
     const handler = (_event: Electron.IpcRendererEvent, entry: { timestamp: string; level: string; source: string; message: string }) => callback(entry)
     ipcRenderer.on('app:log', handler)
     return () => ipcRenderer.removeListener('app:log', handler)
+  },
+
+  onSyncEventsImported: (callback: (info: { count: number; conflicts: number }) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, info: { count: number; conflicts: number }) => callback(info)
+    ipcRenderer.on('sync:events-imported', handler)
+    return () => ipcRenderer.removeListener('sync:events-imported', handler)
   }
 } satisfies ElectronAPI)

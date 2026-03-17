@@ -92,3 +92,24 @@ export interface DuplicateGroup {
   files: DuplicateFile[]
   bestFileId: number
 }
+
+// ── Cross-device sync types ──
+
+export interface SyncStatus {
+  configured: boolean
+  eventLogPath: string
+  deviceName: string
+  lastSyncAt: string | null
+  pendingConflicts: number
+}
+
+export interface SyncConflict {
+  ts: string
+  description: string
+  resolution: 'kept_local' | 'applied_remote'
+}
+
+export interface SyncRootMapping {
+  localAbsolute: string
+  syncRelative: string
+}

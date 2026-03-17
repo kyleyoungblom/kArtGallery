@@ -14,5 +14,22 @@ export const APP_DEFAULTS = {
   thumbnail: {
     maxDimension: 400,
     jpegQuality: 80
+  },
+
+  // Cross-device metadata sync via append-only JSONL event log.
+  // All fields are stored as strings in the preferences table.
+  sync: {
+    /** Absolute path to the events.jsonl file (empty = sync disabled) */
+    eventLogPath: '',
+    /** JSON array of { localAbsolute, syncRelative } root mappings */
+    rootMappings: '[]',
+    /** Human-readable name for this machine (shown in conflict messages) */
+    deviceName: '',
+    /** Persistent UUID identifying this app install (auto-generated on first use) */
+    deviceId: '',
+    /** Byte offset where we stopped reading the event log last time */
+    lastReadByte: '0',
+    /** Event ID of the last event we processed (alignment check) */
+    lastReadEventId: ''
   }
 } as const

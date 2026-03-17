@@ -1,12 +1,18 @@
+import { randomUUID } from 'crypto'
 import { getDb } from '../connection'
 
 // Repository for stack operations. Stacks group files visually in the gallery
 // — a stack appears as a single tile with a count badge, expandable to show
 // its contents. The DB schema has a `stacks` table and files have `stack_id`
 // and `stack_order` columns.
+//
+// Stacks have a `uuid` column for cross-device sync. Auto-increment IDs are
+// local to each SQLite database and won't match across machines. The UUID is
+// generated at creation time and used in the sync event log to identify stacks.
 
 export interface StackRow {
   id: number
+  uuid: string | null
   name: string | null
   cover_file_id: number | null
   folder_id: number
@@ -17,6 +23,9 @@ export interface StackRow {
  * Create a stack and assign files to it in a single transaction.
  * The first file becomes the cover unless overridden.
  *
+ * @param uuid — If provided (e.g., from a sync event), uses that UUID.
+ *   Otherwise generates a new one via crypto.randomUUID().
+ *
  * **Merge behavior:** If any of the provided fileIds already belong to
  * existing stacks, those stacks are dissolved and ALL of their member files
  * are folded into the new stack. This means selecting 2 images where one is
@@ -26,7 +35,8 @@ export interface StackRow {
 export function createStack(
   folderId: number,
   fileIds: number[],
-  name: string | null = null
+  name: string | null = null,
+  uuid?: string
 ): StackRow {
   const db = getDb()
 
@@ -76,11 +86,12 @@ export function createStack(
     const allFileIds = [...fileIds, ...extraFileIds]
 
     const coverFileId = allFileIds.length > 0 ? allFileIds[0] : null
+    const stackUuid = uuid ?? randomUUID()
 
     const info = db.prepare(`
-      INSERT INTO stacks (name, cover_file_id, folder_id)
-      VALUES (?, ?, ?)
-    `).run(name, coverFileId, folderId)
+      INSERT INTO stacks (name, cover_file_id, folder_id, uuid)
+      VALUES (?, ?, ?, ?)
+    `).run(name, coverFileId, folderId, stackUuid)
 
     const stackId = info.lastInsertRowid as number
 
@@ -96,6 +107,27 @@ export function createStack(
   })()
 
   return result
+}
+
+/**
+ * Look up a stack by its UUID. Used during sync import to find the local
+ * stack corresponding to a remote event.
+ */
+export function getStackByUuid(uuid: string): StackRow | undefined {
+  return getDb()
+    .prepare('SELECT * FROM stacks WHERE uuid = ?')
+    .get(uuid) as StackRow | undefined
+}
+
+/**
+ * Get the UUID for a stack by its local integer ID. Used when emitting sync
+ * events — the IPC layer has the integer ID, but the event log needs the UUID.
+ */
+export function getStackUuid(stackId: number): string | null {
+  const row = getDb()
+    .prepare('SELECT uuid FROM stacks WHERE id = ?')
+    .get(stackId) as { uuid: string | null } | undefined
+  return row?.uuid ?? null
 }
 
 /**

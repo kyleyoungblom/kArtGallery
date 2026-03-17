@@ -18,6 +18,7 @@ export interface FileRow {
   thumbnail_generated: number
   thumbnail_error: string | null
   phash: string | null
+  metadata_updated_at: string | null
   indexed_at: string
 }
 
@@ -123,10 +124,30 @@ export function getFailedFiles(): FileRow[] {
     .all() as FileRow[]
 }
 
+// Set a file's hidden state and record the timestamp for sync conflict resolution.
+// The metadata_updated_at column tracks when syncable metadata was last changed,
+// separate from modified_at (which tracks filesystem changes).
 export function setFileHidden(fileId: number, hidden: boolean): void {
   getDb()
-    .prepare('UPDATE files SET hidden = ? WHERE id = ?')
-    .run(hidden ? 1 : 0, fileId)
+    .prepare('UPDATE files SET hidden = ?, metadata_updated_at = ? WHERE id = ?')
+    .run(hidden ? 1 : 0, new Date().toISOString(), fileId)
+}
+
+// Set a file's hidden state with a specific timestamp. Used by the sync importer
+// to preserve the remote event's timestamp for accurate conflict resolution.
+export function setFileHiddenWithTimestamp(fileId: number, hidden: boolean, timestamp: string): void {
+  getDb()
+    .prepare('UPDATE files SET hidden = ?, metadata_updated_at = ? WHERE id = ?')
+    .run(hidden ? 1 : 0, timestamp, fileId)
+}
+
+// Get a file's metadata_updated_at timestamp. Returns null if never set
+// (pre-sync files). Used by the importer to compare against incoming events.
+export function getFileMetadataTimestamp(fileId: number): string | null {
+  const row = getDb()
+    .prepare('SELECT metadata_updated_at FROM files WHERE id = ?')
+    .get(fileId) as { metadata_updated_at: string | null } | undefined
+  return row?.metadata_updated_at ?? null
 }
 
 export function removeFileByPath(filePath: string): void {

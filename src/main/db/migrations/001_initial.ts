@@ -95,6 +95,49 @@ const MIGRATIONS: { version: number; up: (db: Database.Database) => void }[] = [
         WHERE phash IS NOT NULL
       `)
     }
+  },
+  {
+    version: 5,
+    up: (db) => {
+      // Cross-device metadata sync support.
+      //
+      // stacks.uuid: Auto-increment IDs are local to each SQLite DB and won't
+      // match across machines. UUID provides a stable identity for stacks in the
+      // sync event log. Existing stacks get UUIDs backfilled below.
+      //
+      // metadata_updated_at: Tracks when syncable metadata (hidden, stack assignment)
+      // was last changed. Used for "latest timestamp wins" conflict resolution
+      // during sync import. Separate from modified_at (which tracks filesystem
+      // modification time) because hiding a file is orthogonal to editing its bytes.
+      //
+      // sync_applied_events: Idempotency table — prevents double-applying events
+      // if the JSONL file is re-read from the beginning (e.g., cursor misalignment).
+      db.exec(`
+        ALTER TABLE stacks ADD COLUMN uuid TEXT;
+        CREATE UNIQUE INDEX idx_stacks_uuid ON stacks(uuid) WHERE uuid IS NOT NULL;
+
+        ALTER TABLE files ADD COLUMN metadata_updated_at TEXT;
+        ALTER TABLE folders ADD COLUMN metadata_updated_at TEXT;
+
+        CREATE TABLE sync_applied_events (
+          event_id TEXT PRIMARY KEY,
+          applied_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+      `)
+
+      // Backfill existing stacks with UUIDs. We use randomUUID() via a hex
+      // timestamp + random suffix since crypto.randomUUID() isn't available in
+      // the migration context (better-sqlite3 runs synchronously). The format
+      // doesn't matter as long as it's globally unique.
+      const stacks = db.prepare('SELECT id FROM stacks').all() as { id: number }[]
+      const updateStmt = db.prepare('UPDATE stacks SET uuid = ? WHERE id = ?')
+      for (const stack of stacks) {
+        // Generate a v4-style UUID: xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx
+        const hex = () => Math.random().toString(16).slice(2)
+        const uuid = `${hex().slice(0, 8)}-${hex().slice(0, 4)}-4${hex().slice(0, 3)}-${(8 + Math.floor(Math.random() * 4)).toString(16)}${hex().slice(0, 3)}-${hex()}`.slice(0, 36)
+        updateStmt.run(uuid, stack.id)
+      }
+    }
   }
 ]
 

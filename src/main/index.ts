@@ -21,6 +21,7 @@ import { initDb, closeDb } from './db/connection'
 import { registerAllHandlers } from './ipc/handlers'
 import { shutdownWorkers } from './thumbnails/thumbnail-manager'
 import { shutdownWatcher } from './watcher/folder-watcher'
+import { initSync, shutdownSync } from './sync/sync-watcher'
 
 // Register a custom protocol to serve local files securely.
 // By default, Electron's renderer can't load file:// URLs for security reasons.
@@ -101,6 +102,13 @@ app.whenReady().then(() => {
 
   initDb()
   registerAllHandlers()
+
+  // Initialize cross-device sync: import events that arrived while the app
+  // was closed, then start watching the event log for live changes.
+  // Must run after initDb() and registerAllHandlers() since import writes to
+  // the DB and sync IPC handlers need to be registered.
+  initSync()
+
   createWindow()
 
   // macOS convention: re-create window when dock icon is clicked and no windows exist
@@ -123,6 +131,7 @@ app.on('will-quit', () => {
 
 // Quit when all windows are closed (except on macOS, where apps stay in dock)
 app.on('window-all-closed', () => {
+  shutdownSync()
   shutdownWatcher()
   shutdownWorkers()
   closeDb()
