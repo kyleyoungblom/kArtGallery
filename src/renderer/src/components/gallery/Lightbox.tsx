@@ -10,6 +10,12 @@ import { useGalleryFiles } from '../../hooks/useGalleryFiles'
 // original file at full resolution. For non-renderable formats (PSD, TIFF) we
 // load the cached thumbnail — Chromium can't decode these, but macOS Quick Look
 // can because it uses Core Graphics which has native PSD/TIFF support.
+//
+// Image transitions when cycling:
+// We use two layered <img> elements — the "current" (visible) and the "incoming"
+// (loading behind the scenes). When the incoming image finishes loading, it
+// becomes the new current and the old one is discarded. This means the previous
+// image stays visible until the next one is ready, eliminating flicker.
 
 const BROWSER_RENDERABLE = new Set(['.jpg', '.jpeg', '.png', '.gif', '.webp', '.svg', '.bmp'])
 
@@ -18,39 +24,88 @@ export function Lightbox(): JSX.Element | null {
   const activeIndex = useGalleryStore((s) => s.activeIndex)
   const closeLightbox = useGalleryStore((s) => s.closeLightbox)
   const selectIndex = useGalleryStore((s) => s.selectIndex)
+  const lightboxFitToScreen = useGalleryStore((s) => s.lightboxFitToScreen)
   const { files } = useGalleryFiles()
 
   const [zoom, setZoom] = useState(1)
   const [pan, setPan] = useState({ x: 0, y: 0 })
-  const [loaded, setLoaded] = useState(false)
-  const [imageSrc, setImageSrc] = useState<string | null>(null)
   const [previewLoading, setPreviewLoading] = useState(false)
   const [dragging, setDragging] = useState(false)
   const dragStart = useRef({ x: 0, y: 0, panX: 0, panY: 0 })
   const overlayRef = useRef<HTMLDivElement>(null)
 
+  // Track whether the lightbox just opened so we only play the zoom-in
+  // animation on first open, not when cycling between images with arrows.
+  const justOpened = useRef(false)
+
+  // Two-layer image state: currentSrc is what's visible, incomingSrc is loading.
+  // When incoming finishes loading, it replaces current (no flicker).
+  const [currentSrc, setCurrentSrc] = useState<string | null>(null)
+  const [incomingSrc, setIncomingSrc] = useState<string | null>(null)
+  const [currentLoaded, setCurrentLoaded] = useState(false)
+
   const file = lightboxOpen && activeIndex !== null ? files[activeIndex] : null
 
-  // Resolve image source — use thumbnail for non-browser-renderable formats,
-  // then progressively load a high-res preview via sips
+  // ── IMPORTANT: Effect declaration order matters! ──
+  //
+  // React fires useEffect hooks in declaration order within the same commit.
+  // When lightboxOpen changes, both effects below fire. The reset effect MUST
+  // run first so it sets justOpened.current = true before the file resolution
+  // effect reads it. If the order is reversed, justOpened is still false when
+  // the file effect runs → it sets incomingSrc instead of currentSrc → the
+  // reset effect then wipes incomingSrc → stuck on "Loading..." forever.
+
+  // Effect 1: Reset image state when lightbox opens.
+  // Sets justOpened ref so the file resolution effect knows to set currentSrc
+  // directly (instead of using the incoming layer for flicker-free cycling).
+  useEffect(() => {
+    if (lightboxOpen) {
+      justOpened.current = true
+      // Reset image state for fresh open. These may be overwritten by the
+      // file resolution effect below (which runs after this in the same commit).
+      setCurrentSrc(null)
+      setIncomingSrc(null)
+      setCurrentLoaded(false)
+    }
+  }, [lightboxOpen])
+
+  // Effect 2: Resolve image source for the current file.
+  // On fresh open (justOpened ref = true), sets currentSrc directly.
+  // When cycling between images, sets incomingSrc so the previous image
+  // stays visible until the new one finishes loading (no flicker).
   useEffect(() => {
     if (!file) {
-      setImageSrc(null)
+      setCurrentSrc(null)
+      setIncomingSrc(null)
+      setCurrentLoaded(false)
       setPreviewLoading(false)
       return
     }
 
     const fileId = file.id
+    const isFreshOpen = justOpened.current
 
     if (BROWSER_RENDERABLE.has(file.extension)) {
-      setImageSrc(`local-file://${file.path}`)
+      const src = `local-file://${file.path}`
+      if (isFreshOpen) {
+        setCurrentSrc(src)
+        setCurrentLoaded(false)
+      } else {
+        setIncomingSrc(src)
+      }
       setPreviewLoading(false)
     } else {
       // Phase 1: Show low-res thumbnail immediately
       setPreviewLoading(true)
       window.api.getThumbnail(file.id).then((thumbPath) => {
         if (thumbPath) {
-          setImageSrc(`local-file://${thumbPath}`)
+          const src = `local-file://${thumbPath}`
+          if (isFreshOpen) {
+            setCurrentSrc(src)
+            setCurrentLoaded(false)
+          } else {
+            setIncomingSrc(src)
+          }
         }
       })
 
@@ -60,26 +115,38 @@ export function Lightbox(): JSX.Element | null {
         const current = useGalleryStore.getState()
         const currentFile = current.activeIndex !== null ? files[current.activeIndex] : null
         if (currentFile && currentFile.id === fileId && previewPath) {
-          setImageSrc(`local-file://${previewPath}`)
-          setLoaded(false) // trigger re-load for new image
+          setIncomingSrc(`local-file://${previewPath}`)
         }
         setPreviewLoading(false)
       }).catch(() => {
         setPreviewLoading(false)
       })
     }
-  }, [file?.id, file?.extension, file?.path])
+  // lightboxOpen included so the effect re-runs when re-opening on the same image.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [file?.id, file?.extension, file?.path, lightboxOpen])
 
   // Reset zoom/pan when image changes
   useEffect(() => {
     setZoom(1)
     setPan({ x: 0, y: 0 })
-    setLoaded(false)
   }, [activeIndex])
 
-  // Keyboard: Escape, Left/Right arrows, Cmd+/-
+  // Keyboard: Escape, arrows, Cmd+/-
+  // Left/Right = previous/next image (linear)
+  // Up/Down = jump by column count (matches grid row navigation)
   useEffect(() => {
     if (!lightboxOpen) return
+
+    function getColumnCount(): number {
+      // Replicate masonic's column calculation from tileSize, gapSize, and
+      // the gallery container width (viewport minus sidebar and info panel).
+      const store = useGalleryStore.getState()
+      const sidebarW = store.sidebarCollapsed ? 36 : 240
+      const infoW = store.infoPanelOpen ? 280 : 0
+      const containerW = window.innerWidth - sidebarW - infoW - 16 // 16 = grid padding
+      return Math.max(1, Math.floor((containerW + store.gapSize) / (store.tileSize + store.gapSize)))
+    }
 
     function handleKeydown(e: KeyboardEvent): void {
       switch (e.key) {
@@ -98,6 +165,22 @@ export function Lightbox(): JSX.Element | null {
             selectIndex(activeIndex + 1)
           }
           break
+        case 'ArrowUp': {
+          e.preventDefault()
+          const cols = getColumnCount()
+          if (activeIndex !== null && activeIndex - cols >= 0) {
+            selectIndex(activeIndex - cols)
+          }
+          break
+        }
+        case 'ArrowDown': {
+          e.preventDefault()
+          const cols = getColumnCount()
+          if (activeIndex !== null && activeIndex + cols < files.length) {
+            selectIndex(activeIndex + cols)
+          }
+          break
+        }
         case '=':
         case '+':
           if (e.metaKey || e.ctrlKey) {
@@ -203,16 +286,40 @@ export function Lightbox(): JSX.Element | null {
     }
   }, [zoom, closeLightbox])
 
+  // When incoming image loads, promote it to current (flicker-free swap)
+  const handleIncomingLoad = useCallback(() => {
+    setCurrentSrc(incomingSrc)
+    setCurrentLoaded(true)
+    setIncomingSrc(null)
+    justOpened.current = false
+  }, [incomingSrc])
+
+  // When current image loads (first image on open)
+  const handleCurrentLoad = useCallback(() => {
+    setCurrentLoaded(true)
+    justOpened.current = false
+  }, [])
+
   if (!lightboxOpen || !file) return null
 
   const cursor = zoom > 1 ? (dragging ? 'grabbing' : 'grab') : 'default'
   const isThumbnailOnly = !BROWSER_RENDERABLE.has(file.extension)
 
-  // For non-browser-renderable files (PSD, TIFF), set explicit dimensions from
-  // file metadata so the low-res thumbnail is CSS-scaled to match the eventual
-  // high-res preview, reducing visual "pop" when the swap happens.
+  // Compute explicit sizing for the lightbox image.
+  //
+  // Two cases where we need to set explicit dimensions:
+  // 1. Non-browser-renderable files (PSD, TIFF): force the thumbnail to display
+  //    at the file's real dimensions so it doesn't "pop" when the full preview loads.
+  // 2. "Fit to screen" mode: scale any image (even small ones) up to fill the
+  //    viewport while maintaining aspect ratio via object-fit: contain.
   const sizeStyle: React.CSSProperties = {}
-  if (isThumbnailOnly && previewLoading && file.width && file.height) {
+  if (lightboxFitToScreen) {
+    // Scale up to fill viewport — object-fit: contain keeps aspect ratio
+    sizeStyle.width = '100vw'
+    sizeStyle.height = '100vh'
+    sizeStyle.objectFit = 'contain'
+  } else if (isThumbnailOnly && file.width && file.height) {
+    // Only scale down (never up) for non-renderable formats
     const vw = window.innerWidth
     const vh = window.innerHeight
     const scale = Math.min(1, vw / file.width, vh / file.height)
@@ -221,6 +328,8 @@ export function Lightbox(): JSX.Element | null {
     sizeStyle.objectFit = 'contain'
   }
 
+  const transformStyle = `scale(${zoom}) translate(${pan.x / zoom}px, ${pan.y / zoom}px)`
+
   return createPortal(
     <div
       className="lightbox-overlay"
@@ -228,24 +337,47 @@ export function Lightbox(): JSX.Element | null {
       onClick={handleOverlayClick}
       style={{ cursor }}
     >
-      {loaded ? null : <div className="lightbox-loading">Loading...</div>}
-      {imageSrc && (
+      {!currentLoaded && <div className="lightbox-loading">Loading...</div>}
+
+      {/* Current image — always visible once loaded */}
+      {currentSrc && (
         <img
-          key={imageSrc}
-          src={imageSrc}
+          key={currentSrc}
+          src={currentSrc}
           alt={file.filename}
-          className="lightbox-image"
+          className={`lightbox-image${justOpened.current ? ' lightbox-image--entering' : ''}`}
           style={{
-            transform: `scale(${zoom}) translate(${pan.x / zoom}px, ${pan.y / zoom}px)`,
-            opacity: loaded ? 1 : 0,
+            transform: transformStyle,
+            opacity: currentLoaded ? 1 : 0,
             ...sizeStyle
           }}
-          onLoad={() => setLoaded(true)}
-          onError={() => setLoaded(false)}
+          onLoad={handleCurrentLoad}
+          onError={() => setCurrentLoaded(false)}
           onMouseDown={handleMouseDown}
           draggable={false}
         />
       )}
+
+      {/* Incoming image — hidden, loading behind the scenes.
+          When it finishes loading, handleIncomingLoad promotes it to current. */}
+      {incomingSrc && incomingSrc !== currentSrc && (
+        <img
+          key={incomingSrc}
+          src={incomingSrc}
+          alt=""
+          className="lightbox-image"
+          style={{
+            transform: transformStyle,
+            position: 'absolute',
+            opacity: 0,
+            pointerEvents: 'none'
+          }}
+          onLoad={handleIncomingLoad}
+          onError={() => setIncomingSrc(null)}
+          draggable={false}
+        />
+      )}
+
       {previewLoading && (
         <div className="lightbox-preview-loading">Rendering preview...</div>
       )}

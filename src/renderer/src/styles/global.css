@@ -170,6 +170,37 @@
   background: var(--color-bg-hover);
 }
 
+/* Hidden folder — greyed out to indicate it's excluded from the gallery */
+.sidebar-item--hidden {
+  opacity: 0.4;
+}
+
+/* Root folder (depth=0) — visually heavier to show it's the tab owner */
+.sidebar-item--root {
+  font-weight: 600;
+  font-size: 13px;
+  padding-top: 6px;
+  padding-bottom: 6px;
+  margin-top: 2px;
+}
+
+.sidebar-item--root .sidebar-item-name {
+  letter-spacing: 0.01em;
+}
+
+/* Inline rename input for sidebar folder display names */
+.sidebar-rename-input {
+  background: var(--color-bg);
+  border: 1px solid var(--color-accent);
+  border-radius: 3px;
+  color: var(--color-text);
+  font-size: 12px;
+  padding: 1px 4px;
+  min-width: 0;
+  flex: 1;
+  outline: none;
+}
+
 .sidebar-pinned-root {
   position: relative;
 }
@@ -238,6 +269,16 @@
   font-size: 10px;
   margin-left: auto;
   flex-shrink: 0;
+  opacity: 0.7;
+}
+
+.sidebar-sync-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #4ead5b;
+  flex-shrink: 0;
+  margin-left: 4px;
   opacity: 0.7;
 }
 
@@ -363,60 +404,157 @@
   word-break: break-all;
 }
 
-/* ========== Breadcrumb ========== */
+/* ========== Tab Bar ========== */
 
-.breadcrumb {
+.tab-bar {
   display: flex;
   align-items: center;
-  padding: 6px 12px;
+  padding: 0 8px;
   font-size: 12px;
   flex-shrink: 0;
   border-bottom: 1px solid var(--color-border);
   background: var(--color-bg);
   min-height: 32px;
   /* macOS title-bar drag region — lets the user drag the window by
-     the breadcrumb bar, which feels native in a frameless-style layout. */
+     empty space in the tab bar, which feels native. */
   -webkit-app-region: drag;
 }
 
-.breadcrumb-segment {
+.tab-bar-tabs {
+  display: flex;
+  align-items: flex-end;
+  gap: 1px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  -webkit-app-region: no-drag;
+  /* Push tabs to bottom of the bar so the active tab's bottom border
+     merges visually with the content area below. */
+  align-self: flex-end;
+}
+
+.tab-bar-tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.tab-bar-tab {
   display: flex;
   align-items: center;
-  /* Clickable elements inside the drag region need to opt out so
-     clicks register instead of initiating a window drag. */
-  -webkit-app-region: no-drag;
-}
-
-.breadcrumb-separator {
-  margin: 0 6px;
-  color: var(--color-text-muted);
-  opacity: 0.5;
-}
-
-.breadcrumb-btn {
-  background: none;
+  gap: 6px;
+  padding: 5px 10px;
+  background: transparent;
   border: none;
   color: var(--color-text-muted);
   cursor: pointer;
-  padding: 2px 4px;
-  border-radius: 3px;
   font-size: 12px;
+  border-radius: 6px 6px 0 0;
+  white-space: nowrap;
+  min-width: 100px;
+  max-width: 180px;
+  user-select: none;
+  -webkit-user-select: none;
+  flex-shrink: 1;
 }
 
-.breadcrumb-btn:hover {
+.tab-bar-tab:hover {
   color: var(--color-text);
+  background: var(--color-bg-secondary);
+}
+
+.tab-bar-tab--active {
+  color: var(--color-text);
+  background: var(--color-bg-tertiary);
+  border-bottom: 2px solid var(--color-accent);
+  padding-bottom: 3px;
+}
+
+.tab-bar-tab-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+  flex: 1;
+}
+
+.tab-bar-tab-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  background: transparent;
+  border: none;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 1;
+  border-radius: 3px;
+  padding: 0;
+  opacity: 0;
+  flex-shrink: 0;
+  margin-left: 2px;
+}
+
+.tab-bar-tab:hover .tab-bar-tab-close,
+.tab-bar-tab--active .tab-bar-tab-close {
+  opacity: 0.6;
+}
+
+.tab-bar-tab-close:hover {
+  opacity: 1 !important;
   background: var(--color-bg-hover);
-}
-
-.breadcrumb-current {
   color: var(--color-text);
-  padding: 2px 4px;
-  font-weight: 500;
 }
 
-.breadcrumb-actions {
-  margin-left: auto;
+.tab-bar-new {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  background: transparent;
+  border: none;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  font-size: 16px;
+  border-radius: 4px;
+  padding: 0;
+  flex-shrink: 0;
   -webkit-app-region: no-drag;
+}
+
+.tab-bar-new:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text);
+}
+
+.tab-bar-spacer {
+  flex: 1;
+}
+
+.tab-bar-actions {
+  -webkit-app-region: no-drag;
+  flex-shrink: 0;
+}
+
+/* Drag-to-reorder visual feedback */
+.tab-bar-tab--dragging {
+  opacity: 0.4;
+}
+
+.tab-bar-tab--drag-over {
+  box-shadow: inset 2px 0 0 var(--color-accent);
+}
+
+/* Inline rename input for tab display names */
+.tab-bar-tab-rename {
+  background: var(--color-bg);
+  border: 1px solid var(--color-accent);
+  border-radius: 3px;
+  color: var(--color-text);
+  font-size: 12px;
+  padding: 1px 4px;
+  min-width: 0;
+  width: 100%;
+  outline: none;
 }
 
 .breadcrumb-menu-container {
@@ -520,7 +658,6 @@
   top: 0;
   z-index: 10;
   background: var(--color-bg);
-  margin-bottom: 4px;
 }
 
 .toolbar {
@@ -712,7 +849,7 @@
 .gallery-grid {
   flex: 1;
   overflow-y: auto;
-  padding: 8px;
+  padding: 0 8px 8px;
   user-select: none;
   -webkit-user-select: none;
   outline: none;
@@ -736,19 +873,19 @@
   position: relative;
 }
 
-/* Selection border: accent-colored outline fully inside the tile edge.
-   Using an inset outline avoids the z-index problem where adjacent tiles
-   paint over the 1px that extends outside. With outline-offset: -2px the
-   full 2px ring sits inside the image container, so it's never clipped
-   by neighbors regardless of paint order. The selected tile is also
-   elevated via z-index so its outline always renders on top. */
-.gallery-tile--selected {
+/* Selection border: ::after pseudo-element that straddles the tile edge.
+   inset: -3px pulls the pseudo 3px outside the tile, while border: 6px means
+   3px extends outward and 3px extends inward. Adjacent selected tiles share
+   the outer 3px so their borders merge into one clean line instead of doubling.
+   The pseudo-element paints on top of the image and is positioned relative to
+   .gallery-tile (which has position:relative and no overflow clipping). */
+.gallery-tile--selected::after {
+  content: '';
+  position: absolute;
+  inset: -3px;
+  border: 6px solid var(--color-accent);
+  pointer-events: none;
   z-index: 1;
-}
-
-.gallery-tile--selected .gallery-tile-image-container {
-  outline: 2px solid var(--color-accent);
-  outline-offset: -2px;
 }
 
 /* Expanded stack: the cover image gets the accent border to mark it
@@ -782,6 +919,7 @@
 }
 
 .gallery-tile-image-container {
+  position: relative;
   background: var(--color-bg-tertiary);
   border-radius: 0;
   overflow: hidden;
@@ -1531,6 +1669,77 @@
   background: #5cb85c;
 }
 
+/* Update section in General tab */
+.settings-update-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.settings-update-status {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.6);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.settings-update-status--ok {
+  color: #4ead5b;
+}
+
+.settings-update-status--error {
+  color: #e06c75;
+}
+
+.settings-update-ready {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.settings-btn--primary {
+  background: rgba(78, 173, 91, 0.2);
+  color: #4ead5b;
+  border: 1px solid rgba(78, 173, 91, 0.3);
+}
+
+.settings-btn--primary:hover {
+  background: rgba(78, 173, 91, 0.3);
+}
+
+/* ── Settings: Accent color picker ── */
+
+.settings-accent-control {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.settings-color-picker {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  padding: 0;
+  cursor: pointer;
+  background: none;
+}
+
+.settings-color-picker::-webkit-color-swatch-wrapper {
+  padding: 2px;
+}
+
+.settings-color-picker::-webkit-color-swatch {
+  border: none;
+  border-radius: 2px;
+}
+
 /* ========== Focus Containers ========== */
 
 .gallery-grid:focus,
@@ -1573,6 +1782,11 @@
   user-select: none;
   -webkit-user-drag: none;
   transition: transform 0.1s ease-out;
+}
+
+/* Zoom-in animation only on fresh open, not when cycling between images.
+   The --entering class is applied by Lightbox.tsx via a justOpened ref. */
+.lightbox-image--entering {
   animation: lightbox-image-in 0.2s ease-out;
 }
 
@@ -1783,7 +1997,7 @@
 }
 
 .dup-card--best {
-  border-color: #5cb85c;
+  border-color: var(--color-accent);
 }
 
 .dup-card--hidden {
@@ -1839,7 +2053,7 @@
   position: absolute;
   top: 4px;
   left: 4px;
-  background: #5cb85c;
+  background: var(--color-accent);
   color: #fff;
   font-size: 10px;
   font-weight: 600;

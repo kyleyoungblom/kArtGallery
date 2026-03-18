@@ -85,11 +85,18 @@ export interface ElectronAPI {
     pendingConflicts: number
   }>
 
+  // Updates
+  checkForUpdate: () => Promise<void>
+  installUpdate: () => Promise<void>
+  getUpdateStatus: () => Promise<unknown>
+  onUpdateStatusChanged: (callback: (status: unknown) => void) => () => void
+
   // Event listeners (main -> renderer)
   onScanProgress: (callback: (progress: { scanned: number; total: number; currentFile: string }) => void) => () => void
   onThumbnailProgress: (callback: (progress: { generated: number; total: number; currentFile: string }) => void) => () => void
   onThumbnailsReady: (callback: (fileIds: number[]) => void) => () => void
   onFilesChanged: (callback: (changes: { added: string[]; removed: string[]; modified: string[] }) => void) => () => void
+  onFolderStructureChanged: (callback: () => void) => () => void
   onAppLog: (callback: (entry: { timestamp: string; level: string; source: string; message: string }) => void) => () => void
   onSyncEventsImported: (callback: (info: { count: number; conflicts: number }) => void) => () => void
 }
@@ -156,6 +163,16 @@ contextBridge.exposeInMainWorld('api', {
   setSyncConfig: (key: string, value: string) => ipcRenderer.invoke('sync:set-config', key, value),
   getSyncStatus: () => ipcRenderer.invoke('sync:get-status'),
 
+  // Updates
+  checkForUpdate: () => ipcRenderer.invoke('updater:check'),
+  installUpdate: () => ipcRenderer.invoke('updater:install'),
+  getUpdateStatus: () => ipcRenderer.invoke('updater:get-status'),
+  onUpdateStatusChanged: (callback: (status: unknown) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, status: unknown) => callback(status)
+    ipcRenderer.on('updater:status-changed', handler)
+    return () => ipcRenderer.removeListener('updater:status-changed', handler)
+  },
+
   // Event listeners return an unsubscribe function. This pattern prevents
   // memory leaks — when a React component unmounts, it calls the returned
   // function to stop listening. Without this, old listeners accumulate.
@@ -181,6 +198,12 @@ contextBridge.exposeInMainWorld('api', {
     const handler = (_event: Electron.IpcRendererEvent, changes: { added: string[]; removed: string[]; modified: string[] }) => callback(changes)
     ipcRenderer.on('watcher:files-changed', handler)
     return () => ipcRenderer.removeListener('watcher:files-changed', handler)
+  },
+
+  onFolderStructureChanged: (callback: () => void) => {
+    const handler = () => callback()
+    ipcRenderer.on('watcher:folder-structure-changed', handler)
+    return () => ipcRenderer.removeListener('watcher:folder-structure-changed', handler)
   },
 
   onAppLog: (callback: (entry: { timestamp: string; level: string; source: string; message: string }) => void) => {

@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
 import { useGalleryStore } from '../stores/gallery.store'
 import { eventToKeyString, buildShortcutMap } from '../config/shortcut-matcher'
+import { loadFolder } from '../utils/load-folder'
 import type { GalleryItem } from '../types/models'
 
 // Keyboard navigation for the gallery grid.
@@ -72,6 +73,47 @@ export function useGalleryKeyboard(
         window.api.toggleFullscreen()
         return
       }
+
+      // ── Tab shortcuts (global, work regardless of focus region) ──
+      // Cmd+T = new tab, Cmd+W = close tab, Ctrl+Tab / Cmd+Shift+] = next tab,
+      // Ctrl+Shift+Tab / Cmd+Shift+[ = previous tab
+      if (keyStr === 'meta+t' || keyStr === 'ctrl+t') {
+        e.preventDefault()
+        // Open folder picker, then create tab with chosen folder
+        window.api.pickFolder().then((folder: string | null) => {
+          if (folder) {
+            useGalleryStore.getState().createTab(folder)
+            loadFolder(folder)
+          }
+        })
+        return
+      }
+      if (keyStr === 'meta+w' || keyStr === 'ctrl+w') {
+        e.preventDefault()
+        if (store.tabs.length > 1) {
+          const tab = store.tabs.find((t) => t.id === store.activeTabId)
+          const label = tab?.displayName || tab?.rootPath.split('/').pop() || 'this tab'
+          if (window.confirm(`Close "${label}"?`)) {
+            store.closeTab(store.activeTabId)
+          }
+        }
+        return
+      }
+      if (keyStr === 'ctrl+tab' || keyStr === 'meta+shift+]') {
+        e.preventDefault()
+        const idx = store.tabs.findIndex((t) => t.id === store.activeTabId)
+        const next = store.tabs[(idx + 1) % store.tabs.length]
+        if (next) store.switchTab(next.id)
+        return
+      }
+      if (keyStr === 'ctrl+shift+tab' || keyStr === 'meta+shift+[') {
+        e.preventDefault()
+        const idx = store.tabs.findIndex((t) => t.id === store.activeTabId)
+        const prev = store.tabs[(idx - 1 + store.tabs.length) % store.tabs.length]
+        if (prev) store.switchTab(prev.id)
+        return
+      }
+
       if (action === 'switchFocus') {
         e.preventDefault()
         const newRegion = store.focusRegion === 'gallery' ? 'sidebar' : 'gallery'

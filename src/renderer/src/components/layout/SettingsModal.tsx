@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useGalleryStore } from '../../stores/gallery.store'
 import { loadFolder } from '../../utils/load-folder'
 import { DEFAULT_SHORTCUTS } from '../../config/keyboard-defaults'
@@ -28,6 +28,10 @@ export function SettingsModal(): JSX.Element {
   // General tab state — gallery layout
   const gapSize = useGalleryStore((s) => s.gapSize)
   const setGapSize = useGalleryStore((s) => s.setGapSize)
+  const accentColor = useGalleryStore((s) => s.accentColor)
+  const setAccentColor = useGalleryStore((s) => s.setAccentColor)
+  const lightboxFitToScreen = useGalleryStore((s) => s.lightboxFitToScreen)
+  const setLightboxFitToScreen = useGalleryStore((s) => s.setLightboxFitToScreen)
 
   // General tab state — thumbnails
   const [thumbMaxDim, setThumbMaxDim] = useState(400)
@@ -36,11 +40,51 @@ export function SettingsModal(): JSX.Element {
   // Shortcuts tab: which action is being recorded (null = none)
   const [recordingAction, setRecordingAction] = useState<string | null>(null)
 
+  // Update status — tracks the lifecycle of an update check.
+  // The shape mirrors what auto-updater.ts sends over IPC:
+  //   idle | checking | available | downloading | ready | up-to-date | error
+  const [updateStatus, setUpdateStatus] = useState<{
+    state: 'idle' | 'checking' | 'available' | 'downloading' | 'ready' | 'up-to-date' | 'error'
+    version?: string
+    percent?: number
+    message?: string
+  }>({ state: 'idle' })
+
+  // Timer ref for auto-clearing the "up-to-date" message after a few seconds
+  const upToDateTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
   // Sync tab state
   const [syncEventLogPath, setSyncEventLogPath] = useState('')
   const [syncDeviceName, setSyncDeviceName] = useState('')
   const [syncMappings, setSyncMappings] = useState<SyncRootMapping[]>([])
   const [syncConfigured, setSyncConfigured] = useState(false)
+
+  // Subscribe to update status changes from the main process.
+  // Also fetch the current status on mount so we pick up any
+  // background download that started before Settings was opened.
+  useEffect(() => {
+    window.api.getUpdateStatus().then((status) => {
+      if (status && typeof status === 'object') {
+        setUpdateStatus(status as typeof updateStatus)
+      }
+    })
+
+    const unsub = window.api.onUpdateStatusChanged((status) => {
+      const s = status as typeof updateStatus
+      setUpdateStatus(s)
+
+      // Auto-clear "up-to-date" after 4 seconds so the button returns to idle
+      if (s.state === 'up-to-date') {
+        if (upToDateTimer.current) clearTimeout(upToDateTimer.current)
+        upToDateTimer.current = setTimeout(() => setUpdateStatus({ state: 'idle' }), 4000)
+      }
+    })
+
+    return () => {
+      unsub()
+      if (upToDateTimer.current) clearTimeout(upToDateTimer.current)
+    }
+  }, [])
 
   // Load current preferences on mount
   useEffect(() => {
@@ -203,7 +247,32 @@ export function SettingsModal(): JSX.Element {
         <div className="settings-body">
           {tab === 'general' && (
             <div className="settings-section">
-              <h3 className="settings-section-title">Gallery Layout</h3>
+              <h3 className="settings-section-title">Appearance</h3>
+
+              <div className="settings-row">
+                <label className="settings-label">Accent color</label>
+                <div className="settings-control settings-accent-control">
+                  <input
+                    type="color"
+                    value={accentColor}
+                    onChange={(e) => setAccentColor(e.target.value)}
+                    className="settings-color-picker"
+                  />
+                  <span className="settings-value" style={{ fontFamily: 'monospace' }}>{accentColor}</span>
+                  {accentColor !== '#7b9ad4' && (
+                    <button
+                      className="settings-btn"
+                      style={{ marginLeft: 6, fontSize: 10, padding: '2px 6px' }}
+                      onClick={() => setAccentColor('#7b9ad4')}
+                      title="Reset to default"
+                    >
+                      Reset
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              <h3 className="settings-section-title" style={{ marginTop: 18 }}>Gallery Layout</h3>
 
               <div className="settings-row">
                 <label className="settings-label">Tile gap</label>
@@ -217,6 +286,22 @@ export function SettingsModal(): JSX.Element {
                     className="settings-range"
                   />
                   <span className="settings-value">{gapSize}px</span>
+                </div>
+              </div>
+
+              <h3 className="settings-section-title" style={{ marginTop: 18 }}>Lightbox</h3>
+
+              <div className="settings-row">
+                <label className="settings-label">Fit to screen</label>
+                <div className="settings-control">
+                  <label className="toolbar-label toolbar-label--checkbox" style={{ fontSize: 12 }}>
+                    <input
+                      type="checkbox"
+                      checked={lightboxFitToScreen}
+                      onChange={(e) => setLightboxFitToScreen(e.target.checked)}
+                    />
+                    Scale small images up to fill the viewport
+                  </label>
                 </div>
               </div>
 
@@ -253,6 +338,70 @@ export function SettingsModal(): JSX.Element {
                   />
                   <span className="settings-value">{thumbQuality}%</span>
                 </div>
+              </div>
+
+              <h3 className="settings-section-title" style={{ marginTop: 18 }}>App Update</h3>
+
+              <div className="settings-row settings-update-row">
+                {updateStatus.state === 'idle' && (
+                  <button
+                    className="settings-btn"
+                    onClick={() => window.api.checkForUpdate()}
+                  >
+                    Check for Updates
+                  </button>
+                )}
+
+                {updateStatus.state === 'checking' && (
+                  <span className="settings-update-status">
+                    <span className="statusbar-spinner" /> Checking for updates…
+                  </span>
+                )}
+
+                {updateStatus.state === 'available' && (
+                  <span className="settings-update-status">
+                    Version {updateStatus.version} available — downloading…
+                  </span>
+                )}
+
+                {updateStatus.state === 'downloading' && (
+                  <span className="settings-update-status">
+                    Downloading update… {updateStatus.percent != null ? `${Math.round(updateStatus.percent)}%` : ''}
+                  </span>
+                )}
+
+                {updateStatus.state === 'ready' && (
+                  <div className="settings-update-ready">
+                    <span>Update ready{updateStatus.version ? ` (v${updateStatus.version})` : ''}</span>
+                    <button
+                      className="settings-btn settings-btn--primary"
+                      onClick={() => window.api.installUpdate()}
+                    >
+                      Restart to Update
+                    </button>
+                  </div>
+                )}
+
+                {updateStatus.state === 'up-to-date' && (
+                  <span className="settings-update-status settings-update-status--ok">
+                    You're on the latest version
+                  </span>
+                )}
+
+                {updateStatus.state === 'error' && (
+                  <>
+                    <span className="settings-update-status settings-update-status--error">
+                      Update check failed{updateStatus.message ? `: ${updateStatus.message}` : ''}
+                    </span>
+                    <button
+                      className="settings-btn"
+                      style={{ marginLeft: 8 }}
+                      onClick={() => window.api.checkForUpdate()}
+                    >
+                      Retry
+                    </button>
+                  </>
+                )}
               </div>
             </div>
           )}

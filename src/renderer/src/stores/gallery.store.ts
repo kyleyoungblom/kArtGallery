@@ -12,12 +12,61 @@ import type { FileEntry, FolderNode, StackEntry, SortField, SortDirection, Group
 // - Zustand stores are accessible outside React (in event handlers, etc.)
 //   which is useful for IPC callbacks.
 
-interface GalleryState {
-  // Multi-root folder model
-  pinnedFolders: string[] // Ordered list of root folder paths
-  folderTrees: Record<string, FolderNode> // Keyed by root path
+// ── Tab = Folder Root ──
+//
+// Each tab represents one root folder. The sidebar shows the active tab's
+// folder tree. Tabs replace the old "pinned folders" concept entirely.
+//
+// The top-level fields (currentPath, selectedIndices, etc.) remain the "live"
+// state that all components read. Switching tabs saves the current tab's
+// per-tab state and restores the target tab's state into those same top-level
+// fields. This means GalleryGrid, Lightbox, InfoPanel, etc. need zero changes.
 
-  // Current browsing state
+export interface TabState {
+  id: string
+  rootPath: string              // The folder chosen when tab was created (constant)
+  currentPath: string | null    // Where you're browsing within rootPath
+  displayName?: string          // User-set alias (e.g., "Elixir" instead of "Attachments")
+  selectedIndices: Set<number>
+  activeIndex: number | null
+  selectionAnchor: number | null
+  lightboxOpen: boolean
+  scrollTop: number
+  expandedStackId: number | null
+  sidebarExpandedPaths: Set<string>
+}
+
+function createTabState(rootPath: string, currentPath?: string | null): TabState {
+  return {
+    id: crypto.randomUUID(),
+    rootPath,
+    currentPath: currentPath ?? rootPath,
+    selectedIndices: new Set<number>(),
+    activeIndex: null,
+    selectionAnchor: null,
+    lightboxOpen: false,
+    scrollTop: 0,
+    expandedStackId: null,
+    sidebarExpandedPaths: new Set<string>()
+  }
+}
+
+// Placeholder initial tab — will be replaced by restored tabs on startup
+const initialTab = createTabState('')
+
+interface GalleryState {
+  // Folder tree cache — keyed by root path, shared across tabs.
+  // When a folder is scanned, its tree is stored here. Multiple tabs
+  // pointing to the same root reuse the same cached tree.
+  folderTrees: Record<string, FolderNode>
+
+  // Tabs — each tab IS a folder root
+  tabs: TabState[]
+  activeTabId: string
+  pendingScrollRestore: number | null
+
+  // Current browsing state (the "live" state — written to by tab switching)
+  sidebarExpandedPaths: Set<string>
   currentPath: string | null
   files: FileEntry[]
   isScanning: boolean
@@ -25,7 +74,7 @@ interface GalleryState {
   scanVersion: number // Incremented after each scan to trigger re-fetches
   thumbnailVersion: number // Incremented after thumbnail reset to force tile re-fetch
 
-  // Display settings
+  // Display settings (global — shared across all tabs)
   sortField: SortField
   sortDirection: SortDirection
   groupBy: GroupBy
@@ -34,24 +83,18 @@ interface GalleryState {
   gapSize: number
   cropToAspect: boolean
   showLabels: boolean
+  lightboxFitToScreen: boolean
+  accentColor: string
+  sidebarMaxDepth: number // 0 = unlimited
 
   // Filters (empty/null = no filter)
   filterExtensions: string[]
   filterMinSize: number | null
   filterMaxSize: number | null
-  filterMinDimension: number | null // Min width or height in pixels
-  showHidden: boolean // When true, include hidden files in the gallery (dimmed)
+  filterMinDimension: number | null
+  showHidden: boolean
 
   // Selection & lightbox
-  //
-  // Multi-select model:
-  // - selectedIndices: the full set of selected items (O(1) .has() checks in tile render)
-  // - activeIndex: the most-recently-touched item (shown in info panel, used by lightbox)
-  // - selectionAnchor: the start point for Shift+click range selection
-  //
-  // Why Set<number>?  Each tile calls selectedIndices.has(i) during render.
-  // A Set gives O(1) lookup vs O(n) for an array.  We create a *new* Set on
-  // every mutation so Zustand's shallow-equality check detects the change.
   selectedIndices: Set<number>
   activeIndex: number | null
   selectionAnchor: number | null
@@ -65,23 +108,31 @@ interface GalleryState {
   toolbarVisible: boolean
   statusbarVisible: boolean
 
-  // Keyboard shortcut overrides (user customizations, keyed by action ID)
+  // Keyboard shortcut overrides
   keyboardShortcuts: Record<string, string>
 
-  // Sidebar reveal request — set by "Reveal in Sidebar" context menu.
-  // The sidebar watches this, expands ancestor nodes, navigates, and clears it.
+  // Sidebar reveal request
   revealPath: string | null
 
   // Stacks
   stacks: StackEntry[]
-  expandedStackId: number | null // When set, show this stack's files instead of the collapsed cover
+  expandedStackId: number | null
 
   // Duplicate review
   duplicateReviewOpen: boolean
 
+  // Tab actions
+  createTab: (rootPath: string, currentPath?: string | null) => void
+  closeTab: (tabId: string) => void
+  switchTab: (tabId: string) => void
+  reorderTabs: (fromIndex: number, toIndex: number) => void
+  setTabDisplayName: (tabId: string, name: string | null) => void
+  updateActiveTabScroll: (scrollTop: number) => void
+  clearPendingScrollRestore: () => void
+  setSidebarExpandedPaths: (paths: Set<string>) => void
+  setTabs: (tabs: TabState[], activeTabId: string) => void
+
   // Actions
-  addPinnedFolder: (path: string) => void
-  removePinnedFolder: (path: string) => void
   setFolderTreeForRoot: (rootPath: string, tree: FolderNode) => void
   setCurrentPath: (path: string) => void
   setFiles: (files: FileEntry[]) => void
@@ -97,6 +148,9 @@ interface GalleryState {
   setGapSize: (gap: number) => void
   setCropToAspect: (crop: boolean) => void
   setShowLabels: (show: boolean) => void
+  setLightboxFitToScreen: (fit: boolean) => void
+  setAccentColor: (color: string) => void
+  setSidebarMaxDepth: (depth: number) => void
   setFilterExtensions: (exts: string[]) => void
   setFilterMinSize: (size: number | null) => void
   setFilterMaxSize: (size: number | null) => void
@@ -104,11 +158,10 @@ interface GalleryState {
   setShowHidden: (show: boolean) => void
   toggleShowHidden: () => void
   clearFilters: () => void
-  // Multi-select actions
-  selectIndex: (index: number) => void       // Plain click: select one, clear rest
-  toggleIndex: (index: number) => void       // Cmd+click: toggle one in/out of set
-  rangeSelect: (index: number) => void       // Shift+click: select anchor→index range
-  clearSelection: () => void                 // Escape / deselect all
+  selectIndex: (index: number) => void
+  toggleIndex: (index: number) => void
+  rangeSelect: (index: number) => void
+  clearSelection: () => void
   openLightbox: () => void
   closeLightbox: () => void
   setFocusRegion: (region: 'sidebar' | 'gallery') => void
@@ -128,9 +181,45 @@ interface GalleryState {
   closeDuplicateReview: () => void
 }
 
+// Helper: snapshot the per-tab fields from top-level state into a tab entry
+function saveTabState(state: GalleryState, tabId: string): TabState[] {
+  return state.tabs.map((t) =>
+    t.id === tabId
+      ? {
+          ...t,
+          currentPath: state.currentPath,
+          selectedIndices: state.selectedIndices,
+          activeIndex: state.activeIndex,
+          selectionAnchor: state.selectionAnchor,
+          lightboxOpen: state.lightboxOpen,
+          expandedStackId: state.expandedStackId,
+          sidebarExpandedPaths: state.sidebarExpandedPaths
+        }
+      : t
+  )
+}
+
+// Helper: restore per-tab fields from a tab entry to top-level state
+function restoreTabState(tab: TabState): Partial<GalleryState> {
+  return {
+    currentPath: tab.currentPath,
+    selectedIndices: tab.selectedIndices,
+    activeIndex: tab.activeIndex,
+    selectionAnchor: tab.selectionAnchor,
+    lightboxOpen: tab.lightboxOpen,
+    expandedStackId: tab.expandedStackId,
+    sidebarExpandedPaths: tab.sidebarExpandedPaths,
+    pendingScrollRestore: tab.scrollTop > 0 ? tab.scrollTop : null
+  }
+}
+
 export const useGalleryStore = create<GalleryState>((set) => ({
-  pinnedFolders: [],
+  tabs: [initialTab],
+  activeTabId: initialTab.id,
+  pendingScrollRestore: null,
+
   folderTrees: {},
+  sidebarExpandedPaths: new Set<string>(),
   currentPath: null,
   files: [],
   isScanning: false,
@@ -146,6 +235,9 @@ export const useGalleryStore = create<GalleryState>((set) => ({
   gapSize: 4,
   cropToAspect: true,
   showLabels: true,
+  lightboxFitToScreen: true,
+  accentColor: '#7b9ad4',
+  sidebarMaxDepth: 0,
 
   filterExtensions: [],
   filterMinSize: null,
@@ -169,22 +261,109 @@ export const useGalleryStore = create<GalleryState>((set) => ({
   expandedStackId: null,
   duplicateReviewOpen: false,
 
-  addPinnedFolder: (path) => set((state) => ({
-    pinnedFolders: state.pinnedFolders.includes(path)
-      ? state.pinnedFolders
-      : [...state.pinnedFolders, path]
-  })),
-  removePinnedFolder: (path) => set((state) => {
-    const { [path]: _, ...rest } = state.folderTrees
+  // ── Tab actions ──
+
+  createTab: (rootPath, currentPath) => set((state) => {
+    const savedTabs = saveTabState(state, state.activeTabId)
+    const newTab = createTabState(rootPath, currentPath)
     return {
-      pinnedFolders: state.pinnedFolders.filter((p) => p !== path),
-      folderTrees: rest
+      tabs: [...savedTabs, newTab],
+      activeTabId: newTab.id,
+      currentPath: newTab.currentPath,
+      files: [],
+      selectedIndices: new Set<number>(),
+      activeIndex: null,
+      selectionAnchor: null,
+      lightboxOpen: false,
+      expandedStackId: null,
+      sidebarExpandedPaths: new Set<string>(),
+      pendingScrollRestore: null
     }
   }),
+
+  closeTab: (tabId) => set((state) => {
+    if (state.tabs.length <= 1) return {}
+    const idx = state.tabs.findIndex((t) => t.id === tabId)
+    if (idx === -1) return {}
+
+    const newTabs = state.tabs.filter((t) => t.id !== tabId)
+
+    if (tabId === state.activeTabId) {
+      const newActive = newTabs[Math.min(idx, newTabs.length - 1)]
+      return {
+        tabs: newTabs,
+        activeTabId: newActive.id,
+        files: [],
+        scanVersion: state.scanVersion + 1,
+        ...restoreTabState(newActive)
+      }
+    }
+    return { tabs: newTabs }
+  }),
+
+  switchTab: (tabId) => set((state) => {
+    if (tabId === state.activeTabId) return {}
+    const target = state.tabs.find((t) => t.id === tabId)
+    if (!target) return {}
+
+    const savedTabs = saveTabState(state, state.activeTabId)
+    return {
+      tabs: savedTabs,
+      activeTabId: tabId,
+      files: [],
+      scanVersion: state.scanVersion + 1,
+      ...restoreTabState(target)
+    }
+  }),
+
+  reorderTabs: (fromIndex, toIndex) => set((state) => {
+    if (fromIndex === toIndex) return {}
+    const newTabs = [...state.tabs]
+    const [moved] = newTabs.splice(fromIndex, 1)
+    newTabs.splice(toIndex, 0, moved)
+    return { tabs: newTabs }
+  }),
+
+  setTabDisplayName: (tabId, name) => set((state) => ({
+    tabs: state.tabs.map((t) => t.id === tabId ? { ...t, displayName: name ?? undefined } : t)
+  })),
+
+  updateActiveTabScroll: (scrollTop) => set((state) => ({
+    tabs: state.tabs.map((t) => t.id === state.activeTabId ? { ...t, scrollTop } : t)
+  })),
+
+  clearPendingScrollRestore: () => set({ pendingScrollRestore: null }),
+
+  setSidebarExpandedPaths: (paths) => set((state) => ({
+    sidebarExpandedPaths: paths,
+    tabs: state.tabs.map((t) => t.id === state.activeTabId ? { ...t, sidebarExpandedPaths: paths } : t)
+  })),
+
+  // Bulk-set tabs (used by startup restore)
+  setTabs: (tabs, activeTabId) => set((state) => {
+    const active = tabs.find((t) => t.id === activeTabId) ?? tabs[0]
+    return {
+      tabs,
+      activeTabId: active.id,
+      ...restoreTabState(active),
+      files: [],
+      scanVersion: state.scanVersion + 1
+    }
+  }),
+
   setFolderTreeForRoot: (rootPath, tree) => set((state) => ({
     folderTrees: { ...state.folderTrees, [rootPath]: tree }
   })),
-  setCurrentPath: (path) => set({ currentPath: path, files: [], selectedIndices: new Set(), activeIndex: null, selectionAnchor: null, lightboxOpen: false }),
+  setCurrentPath: (path) => set((state) => ({
+    currentPath: path,
+    files: [],
+    selectedIndices: new Set(),
+    activeIndex: null,
+    selectionAnchor: null,
+    lightboxOpen: false,
+    expandedStackId: null,
+    tabs: state.tabs.map((t) => t.id === state.activeTabId ? { ...t, currentPath: path } : t)
+  })),
   setFiles: (files) => set({ files, selectedIndices: new Set(), activeIndex: null, selectionAnchor: null, lightboxOpen: false }),
   setIsScanning: (scanning) => set({ isScanning: scanning }),
   setScanProgress: (progress) => set({ scanProgress: progress }),
@@ -198,6 +377,9 @@ export const useGalleryStore = create<GalleryState>((set) => ({
   setGapSize: (gap) => set({ gapSize: gap }),
   setCropToAspect: (crop) => set({ cropToAspect: crop }),
   setShowLabels: (show) => set({ showLabels: show }),
+  setLightboxFitToScreen: (fit) => set({ lightboxFitToScreen: fit }),
+  setAccentColor: (color) => set({ accentColor: color }),
+  setSidebarMaxDepth: (depth) => set({ sidebarMaxDepth: depth }),
   setFilterExtensions: (exts) => set({ filterExtensions: exts }),
   setFilterMinSize: (size) => set({ filterMinSize: size }),
   setFilterMaxSize: (size) => set({ filterMaxSize: size }),
@@ -205,33 +387,16 @@ export const useGalleryStore = create<GalleryState>((set) => ({
   setShowHidden: (show) => set({ showHidden: show }),
   toggleShowHidden: () => set((state) => ({ showHidden: !state.showHidden })),
   clearFilters: () => set({ filterExtensions: [], filterMinSize: null, filterMaxSize: null, filterMinDimension: null }),
-  // Plain click: clear set, select exactly one item, set it as anchor
   selectIndex: (index) => set((state) => {
     const clamped = Math.max(0, Math.min(index, state.files.length - 1))
-    return {
-      selectedIndices: new Set([clamped]),
-      activeIndex: clamped,
-      selectionAnchor: clamped
-    }
+    return { selectedIndices: new Set([clamped]), activeIndex: clamped, selectionAnchor: clamped }
   }),
-
-  // Cmd+click: toggle one item in/out of the selection set
   toggleIndex: (index) => set((state) => {
     const clamped = Math.max(0, Math.min(index, state.files.length - 1))
     const next = new Set(state.selectedIndices)
-    if (next.has(clamped)) {
-      next.delete(clamped)
-    } else {
-      next.add(clamped)
-    }
-    return {
-      selectedIndices: next,
-      activeIndex: next.size > 0 ? clamped : null,
-      selectionAnchor: clamped
-    }
+    if (next.has(clamped)) { next.delete(clamped) } else { next.add(clamped) }
+    return { selectedIndices: next, activeIndex: next.size > 0 ? clamped : null, selectionAnchor: clamped }
   }),
-
-  // Shift+click: select contiguous range from anchor to target
   rangeSelect: (index) => set((state) => {
     const clamped = Math.max(0, Math.min(index, state.files.length - 1))
     const anchor = state.selectionAnchor ?? 0
@@ -239,23 +404,10 @@ export const useGalleryStore = create<GalleryState>((set) => ({
     const hi = Math.max(anchor, clamped)
     const next = new Set<number>()
     for (let i = lo; i <= hi; i++) next.add(i)
-    return {
-      selectedIndices: next,
-      activeIndex: clamped
-      // Keep selectionAnchor unchanged — anchor is the *start* of a range
-    }
+    return { selectedIndices: next, activeIndex: clamped }
   }),
-
-  // Escape / click background: clear everything
-  clearSelection: () => set({
-    selectedIndices: new Set<number>(),
-    activeIndex: null,
-    selectionAnchor: null
-  }),
-
-  openLightbox: () => set((state) => ({
-    lightboxOpen: state.activeIndex !== null
-  })),
+  clearSelection: () => set({ selectedIndices: new Set<number>(), activeIndex: null, selectionAnchor: null }),
+  openLightbox: () => set((state) => ({ lightboxOpen: state.activeIndex !== null })),
   closeLightbox: () => set({ lightboxOpen: false }),
   setFocusRegion: (region) => set({ focusRegion: region }),
   toggleSidebar: () => set((state) => ({ sidebarCollapsed: !state.sidebarCollapsed })),

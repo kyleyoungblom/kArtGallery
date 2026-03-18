@@ -67,6 +67,14 @@ export function getFolderByPath(folderPath: string): FolderRow | undefined {
     .get(folderPath) as FolderRow | undefined
 }
 
+/** Get a Set of all folder paths marked as hidden in the DB. */
+export function getHiddenFolderPaths(): Set<string> {
+  const rows = getDb()
+    .prepare('SELECT path FROM folders WHERE hidden = 1')
+    .all() as Array<{ path: string }>
+  return new Set(rows.map((r) => r.path))
+}
+
 // Rename a folder and all its subfolders by rewriting path prefixes.
 // Used by the file watcher when a folder is renamed in Finder.
 // Preserves all metadata (hidden flags, scan timestamps) since we update in-place.

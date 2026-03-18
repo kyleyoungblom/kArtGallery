@@ -1,7 +1,7 @@
 import { ipcMain, dialog, BrowserWindow } from 'electron'
 import path from 'path'
 import { scanFolder } from '../scanner/folder-scanner'
-import { upsertFolder, updateLastScanned, getAllFolders } from '../db/repositories/folders.repo'
+import { upsertFolder, updateLastScanned, getAllFolders, getHiddenFolderPaths } from '../db/repositories/folders.repo'
 import { upsertFiles, getFilesByFolder, getAllFiles, getFileCountsByFolderPath } from '../db/repositories/files.repo'
 import { startThumbnailGeneration } from '../thumbnails/thumbnail-manager'
 import { watchFolder } from '../watcher/folder-watcher'
@@ -86,7 +86,8 @@ export function registerFileHandlers(): void {
   })
 
   ipcMain.handle('gallery:get-folder-tree', (_event, rootPath: string) => {
-    return buildFolderTree(rootPath)
+    const hiddenPaths = getHiddenFolderPaths()
+    return buildFolderTree(rootPath, hiddenPaths)
   })
 
   // Returns a map of folder path → file count for the sidebar.
@@ -98,8 +99,9 @@ export function registerFileHandlers(): void {
 
 // Build a tree structure from the filesystem for the sidebar.
 // We read from disk (not DB) so we always show the current state,
-// even for folders that haven't been scanned yet.
-function buildFolderTree(dirPath: string): FolderNode {
+// even for folders that haven't been scanned yet. The hidden flag
+// is looked up from the DB so hidden folders appear greyed out.
+function buildFolderTree(dirPath: string, hiddenPaths: Set<string>): FolderNode {
   const name = path.basename(dirPath)
   const children: FolderNode[] = []
 
@@ -107,7 +109,7 @@ function buildFolderTree(dirPath: string): FolderNode {
     const entries = fs.readdirSync(dirPath, { withFileTypes: true })
     for (const entry of entries) {
       if (entry.isDirectory() && !entry.name.startsWith('.')) {
-        children.push(buildFolderTree(path.join(dirPath, entry.name)))
+        children.push(buildFolderTree(path.join(dirPath, entry.name), hiddenPaths))
       }
     }
   } catch {
@@ -117,5 +119,5 @@ function buildFolderTree(dirPath: string): FolderNode {
   // Sort children alphabetically for consistent display
   children.sort((a, b) => a.name.localeCompare(b.name))
 
-  return { name, path: dirPath, hidden: false, children }
+  return { name, path: dirPath, hidden: hiddenPaths.has(dirPath), children }
 }

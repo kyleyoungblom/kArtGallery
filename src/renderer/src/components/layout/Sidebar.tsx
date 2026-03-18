@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { useGalleryStore } from '../../stores/gallery.store'
 import { loadFolder } from '../../utils/load-folder'
 import { ContextMenu } from './ContextMenu'
@@ -15,6 +15,8 @@ function FolderTreeItem({
   focusedPath,
   expandedPaths,
   folderCounts,
+  syncedRoots,
+  displayName,
   onSelect,
   onToggle,
   onToggleRecursive
@@ -25,21 +27,57 @@ function FolderTreeItem({
   focusedPath: string | null
   expandedPaths: Set<string>
   folderCounts: Record<string, number>
+  syncedRoots: Set<string>
+  displayName?: string
   onSelect: (path: string) => void
   onToggle: (path: string) => void
   onToggleRecursive: (path: string) => void
 }): JSX.Element {
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null)
+  const [isRenaming, setIsRenaming] = useState(false)
+  const [renameValue, setRenameValue] = useState('')
+  const renameRef = useRef<HTMLInputElement>(null)
   const hasChildren = node.children.length > 0
   const isSelected = node.path === selectedPath
   const isFocused = node.path === focusedPath
   const expanded = expandedPaths.has(node.path)
+  const isRoot = depth === 0
 
   const className = [
     'sidebar-item',
     isSelected ? 'sidebar-item--selected' : '',
-    isFocused ? 'sidebar-item--focused' : ''
+    isFocused ? 'sidebar-item--focused' : '',
+    isRoot ? 'sidebar-item--root' : '',
+    node.hidden ? 'sidebar-item--hidden' : ''
   ].filter(Boolean).join(' ')
+
+  // Focus rename input when it appears
+  useEffect(() => {
+    if (isRenaming && renameRef.current) {
+      renameRef.current.focus()
+      renameRef.current.select()
+    }
+  }, [isRenaming])
+
+  const startRootRename = useCallback(() => {
+    setIsRenaming(true)
+    setRenameValue(displayName || node.name)
+    setContextMenu(null)
+  }, [displayName, node.name])
+
+  const commitRootRename = useCallback(() => {
+    const trimmed = renameValue.trim()
+    const store = useGalleryStore.getState()
+    const activeTab = store.tabs.find((t) => t.id === store.activeTabId)
+    if (activeTab) {
+      if (!trimmed || trimmed === node.name) {
+        store.setTabDisplayName(activeTab.id, null)
+      } else {
+        store.setTabDisplayName(activeTab.id, trimmed)
+      }
+    }
+    setIsRenaming(false)
+  }, [renameValue, node.name])
 
   return (
     <div>
@@ -68,7 +106,26 @@ function FolderTreeItem({
           </button>
         )}
         {!hasChildren && <span className="sidebar-toggle-spacer" />}
-        <span className="sidebar-item-name">{node.name}</span>
+        {isRenaming ? (
+          <input
+            ref={renameRef}
+            className="sidebar-rename-input"
+            value={renameValue}
+            onChange={(e) => setRenameValue(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') { e.preventDefault(); commitRootRename() }
+              if (e.key === 'Escape') { e.preventDefault(); setIsRenaming(false) }
+            }}
+            onBlur={commitRootRename}
+            onClick={(e) => e.stopPropagation()}
+          />
+        ) : (
+          <span className="sidebar-item-name">{(isRoot && displayName) ? displayName : node.name}</span>
+        )}
+        {/* Show a green dot only if this exact folder is a sync root mapping */}
+        {syncedRoots.has(node.path) && (
+          <span className="sidebar-sync-dot" title="Synced" />
+        )}
         {folderCounts[node.path] !== undefined && (
           <span className="sidebar-item-count">{folderCounts[node.path]}</span>
         )}
@@ -78,16 +135,21 @@ function FolderTreeItem({
           x={contextMenu.x}
           y={contextMenu.y}
           items={[
+            ...(isRoot ? [{ label: 'Edit Display Name\u2026', onClick: startRootRename }] : []),
+            { label: 'Open in New Tab', onClick: () => { useGalleryStore.getState().createTab(node.path); loadFolder(node.path) } },
             { label: 'Open in Finder', onClick: () => window.api.openFolder(node.path) },
             {
               label: node.hidden ? 'Unhide Folder' : 'Hide Folder',
               onClick: () => {
-                // setHidden takes a DB id — but we only have the path here.
-                // The IPC handler for set-hidden accepts (id, type, hidden).
-                // For folders, we need the folder's DB id. We'll use a dedicated
-                // IPC channel that accepts a path instead.
-                window.api.setFolderHiddenByPath(node.path, !node.hidden).then(() => {
-                  useGalleryStore.getState().incrementScanVersion()
+                window.api.setFolderHiddenByPath(node.path, !node.hidden).then(async () => {
+                  const store = useGalleryStore.getState()
+                  store.incrementScanVersion()
+                  // Rebuild the folder tree so the hidden flag is reflected in the sidebar
+                  const activeTab = store.tabs.find((t) => t.id === store.activeTabId)
+                  if (activeTab?.rootPath) {
+                    const tree = await window.api.getFolderTree(activeTab.rootPath)
+                    store.setFolderTreeForRoot(activeTab.rootPath, tree as import('../../types/models').FolderNode)
+                  }
                 })
               }
             }
@@ -106,6 +168,7 @@ function FolderTreeItem({
             focusedPath={focusedPath}
             expandedPaths={expandedPaths}
             folderCounts={folderCounts}
+            syncedRoots={syncedRoots}
             onSelect={onSelect}
             onToggle={onToggle}
             onToggleRecursive={onToggleRecursive}
@@ -171,10 +234,13 @@ function initExpandedPaths(node: FolderNode, depth = 0): string[] {
 
 export function Sidebar(): JSX.Element {
   const currentPath = useGalleryStore((s) => s.currentPath)
-  const pinnedFolders = useGalleryStore((s) => s.pinnedFolders)
+  const tabs = useGalleryStore((s) => s.tabs)
+  const activeTabId = useGalleryStore((s) => s.activeTabId)
   const folderTrees = useGalleryStore((s) => s.folderTrees)
-  const removePinnedFolder = useGalleryStore((s) => s.removePinnedFolder)
   const setCurrentPath = useGalleryStore((s) => s.setCurrentPath)
+  // Get the active tab's root folder for rendering the tree
+  const activeTab = tabs.find((t) => t.id === activeTabId)
+  const activeRootPath = activeTab?.rootPath ?? ''
   const focusRegion = useGalleryStore((s) => s.focusRegion)
   const setFocusRegion = useGalleryStore((s) => s.setFocusRegion)
   const sidebarCollapsed = useGalleryStore((s) => s.sidebarCollapsed)
@@ -184,11 +250,13 @@ export function Sidebar(): JSX.Element {
   const scanVersion = useGalleryStore((s) => s.scanVersion)
   const openDuplicateReview = useGalleryStore((s) => s.openDuplicateReview)
 
-  const [expandedPaths, setExpandedPaths] = useState<Set<string>>(new Set())
+  const expandedPaths = useGalleryStore((s) => s.sidebarExpandedPaths)
+  const setSidebarExpandedPaths = useGalleryStore((s) => s.setSidebarExpandedPaths)
   const [focusedPath, setFocusedPath] = useState<string | null>(null)
   const [folderCounts, setFolderCounts] = useState<Record<string, number>>({})
   const [duplicateCount, setDuplicateCount] = useState<number>(0)
   const [failedModalOpen, setFailedModalOpen] = useState(false)
+  const [syncedRoots, setSyncedRoots] = useState<Set<string>>(new Set())
 
   // Initialize expanded paths when folder trees change
   useEffect(() => {
@@ -197,13 +265,12 @@ export function Sidebar(): JSX.Element {
       paths.push(...initExpandedPaths(tree))
     }
     if (paths.length > 0) {
-      setExpandedPaths((prev) => {
-        const next = new Set(prev)
-        for (const p of paths) next.add(p)
-        return next
-      })
+      const prev = useGalleryStore.getState().sidebarExpandedPaths
+      const next = new Set(prev)
+      for (const p of paths) next.add(p)
+      setSidebarExpandedPaths(next)
     }
-  }, [folderTrees])
+  }, [folderTrees, setSidebarExpandedPaths])
 
   // Fetch file counts per folder after each scan completes.
   // scanVersion increments after every scan, so this re-runs automatically.
@@ -212,6 +279,16 @@ export function Sidebar(): JSX.Element {
     // Also refresh duplicate count — hashes may have been computed since last check
     window.api.getDuplicateCount().then(setDuplicateCount)
   }, [scanVersion])
+
+  // Fetch sync root mappings to show sync dots on synced folders.
+  useEffect(() => {
+    window.api.getSyncConfig().then((config: { rootMappings: string }) => {
+      try {
+        const mappings = JSON.parse(config.rootMappings) as Array<{ localAbsolute: string }>
+        setSyncedRoots(new Set(mappings.map((m) => m.localAbsolute)))
+      } catch { /* ignore */ }
+    })
+  }, [scanVersion]) // Re-fetch when scan completes (settings might have changed)
 
   // Sync focusedPath to currentPath when it changes
   useEffect(() => {
@@ -225,22 +302,20 @@ export function Sidebar(): JSX.Element {
 
     // Build the list of ancestor paths that need to be expanded.
     // Walk up from the target path, collecting each parent until we
-    // reach a pinned root (which is always visible).
+    // reach the active tab's root folder (which is always visible).
     const ancestors: string[] = []
     let p = revealPath
-    const rootSet = new Set(pinnedFolders)
-    while (p && !rootSet.has(p)) {
+    while (p && p !== activeRootPath) {
       const parent = p.substring(0, p.lastIndexOf('/'))
       if (parent === p) break // reached filesystem root
       ancestors.push(parent)
       p = parent
     }
 
-    setExpandedPaths((prev) => {
-      const next = new Set(prev)
-      for (const a of ancestors) next.add(a)
-      return next
-    })
+    const prev = useGalleryStore.getState().sidebarExpandedPaths
+    const next = new Set(prev)
+    for (const a of ancestors) next.add(a)
+    setSidebarExpandedPaths(next)
 
     // Scroll the selected item into view after React renders the expanded tree
     requestAnimationFrame(() => {
@@ -248,7 +323,7 @@ export function Sidebar(): JSX.Element {
     })
 
     setRevealPath(null)
-  }, [revealPath, pinnedFolders, setRevealPath])
+  }, [revealPath, activeRootPath, setRevealPath])
 
   // When focus switches to sidebar, ensure focusedPath is set and visible
   useEffect(() => {
@@ -262,13 +337,7 @@ export function Sidebar(): JSX.Element {
     }
   }, [focusRegion])
 
-  const handlePickFolder = useCallback(async () => {
-    const path = await window.api.pickFolder()
-    if (!path) return
-    await loadFolder(path)
-  }, [])
-
-  // On startup, restore view settings and auto-load pinned folder.
+  // On startup, restore view settings and tabs.
   useEffect(() => {
     window.api.getPreferences().then((prefs) => {
       const store = useGalleryStore.getState()
@@ -279,7 +348,9 @@ export function Sidebar(): JSX.Element {
       if (prefs['gapSize']) store.setGapSize(Number(prefs['gapSize']))
       if (prefs['cropToAspect'] !== undefined) store.setCropToAspect(prefs['cropToAspect'] === 'true')
       if (prefs['showLabels'] !== undefined) store.setShowLabels(prefs['showLabels'] === 'true')
+      if (prefs['lightboxFitToScreen'] !== undefined) store.setLightboxFitToScreen(prefs['lightboxFitToScreen'] === 'true')
       if (prefs['showHidden'] !== undefined) store.setShowHidden(prefs['showHidden'] === 'true')
+      if (prefs['accentColor']) store.setAccentColor(prefs['accentColor'])
       if (prefs['toolbarVisible'] !== undefined && prefs['toolbarVisible'] === 'false') store.toggleToolbar()
       if (prefs['statusbarVisible'] !== undefined && prefs['statusbarVisible'] === 'false') store.toggleStatusbar()
       if (prefs['filterExtensions']) {
@@ -302,20 +373,80 @@ export function Sidebar(): JSX.Element {
         } catch { /* ignore malformed JSON */ }
       }
 
-      // Migrate from old single pinnedFolder to new pinnedFolders array
-      const pinnedFoldersJson = prefs['pinnedFolders']
-      const oldPinned = prefs['pinnedFolder']
-      let foldersToLoad: string[] = []
-
-      if (pinnedFoldersJson) {
-        try { foldersToLoad = JSON.parse(pinnedFoldersJson) } catch { /* ignore */ }
-      } else if (oldPinned) {
-        foldersToLoad = [oldPinned]
-        window.api.setPreference('pinnedFolders', JSON.stringify(foldersToLoad))
+      // Restore tabs from previous session (new format with rootPath)
+      let tabsRestored = false
+      if (prefs['tabs']) {
+        try {
+          const savedTabs = JSON.parse(prefs['tabs']) as Array<{ id: string; rootPath?: string; currentPath: string | null; displayName?: string }>
+          const savedActiveTabId = prefs['activeTabId'] || ''
+          if (savedTabs.length > 0 && savedTabs[0].rootPath) {
+            // New format: each tab has rootPath
+            const reconstructed: import('../../stores/gallery.store').TabState[] = savedTabs
+              .filter((t) => t.rootPath) // Skip tabs without rootPath
+              .map((t) => ({
+                id: t.id,
+                rootPath: t.rootPath!,
+                currentPath: t.currentPath ?? t.rootPath!,
+                displayName: t.displayName,
+                selectedIndices: new Set<number>(),
+                activeIndex: null,
+                selectionAnchor: null,
+                lightboxOpen: false,
+                scrollTop: 0,
+                expandedStackId: null,
+                sidebarExpandedPaths: new Set<string>()
+              }))
+            if (reconstructed.length > 0) {
+              const activeId = reconstructed.find((t) => t.id === savedActiveTabId)?.id ?? reconstructed[0].id
+              store.setTabs(reconstructed, activeId)
+              // Load each tab's root folder (scan + tree build)
+              const loadedRoots = new Set<string>()
+              for (const tab of reconstructed) {
+                if (!loadedRoots.has(tab.rootPath)) {
+                  loadedRoots.add(tab.rootPath)
+                  loadFolder(tab.rootPath)
+                }
+              }
+              tabsRestored = true
+            }
+          }
+        } catch { /* ignore malformed JSON */ }
       }
 
-      for (const folder of foldersToLoad) {
-        loadFolder(folder)
+      // Migration: convert old pinnedFolders to tabs
+      if (!tabsRestored) {
+        const pinnedFoldersJson = prefs['pinnedFolders']
+        const oldPinned = prefs['pinnedFolder']
+        let foldersToMigrate: string[] = []
+
+        if (pinnedFoldersJson) {
+          try { foldersToMigrate = JSON.parse(pinnedFoldersJson) } catch { /* ignore */ }
+        } else if (oldPinned) {
+          foldersToMigrate = [oldPinned]
+        }
+
+        if (foldersToMigrate.length > 0) {
+          // Create one tab per old pinned folder
+          const migratedTabs: import('../../stores/gallery.store').TabState[] = foldersToMigrate.map((folder) => ({
+            id: crypto.randomUUID(),
+            rootPath: folder,
+            currentPath: folder,
+            selectedIndices: new Set<number>(),
+            activeIndex: null,
+            selectionAnchor: null,
+            lightboxOpen: false,
+            scrollTop: 0,
+            expandedStackId: null,
+            sidebarExpandedPaths: new Set<string>()
+          }))
+          store.setTabs(migratedTabs, migratedTabs[0].id)
+          for (const folder of foldersToMigrate) {
+            loadFolder(folder)
+          }
+          // Clear old preferences
+          window.api.setPreference('pinnedFolders', '')
+          window.api.setPreference('pinnedFolder', '')
+        }
       }
     })
   }, [])
@@ -330,6 +461,7 @@ export function Sidebar(): JSX.Element {
       if (state.gapSize !== prev.gapSize) window.api.setPreference('gapSize', String(state.gapSize))
       if (state.cropToAspect !== prev.cropToAspect) window.api.setPreference('cropToAspect', String(state.cropToAspect))
       if (state.showLabels !== prev.showLabels) window.api.setPreference('showLabels', String(state.showLabels))
+      if (state.lightboxFitToScreen !== prev.lightboxFitToScreen) window.api.setPreference('lightboxFitToScreen', String(state.lightboxFitToScreen))
       if (state.sidebarCollapsed !== prev.sidebarCollapsed) window.api.setPreference('sidebarCollapsed', String(state.sidebarCollapsed))
       if (state.infoPanelOpen !== prev.infoPanelOpen) window.api.setPreference('infoPanelOpen', String(state.infoPanelOpen))
       if (state.showHidden !== prev.showHidden) window.api.setPreference('showHidden', String(state.showHidden))
@@ -339,6 +471,13 @@ export function Sidebar(): JSX.Element {
       if (state.filterMinSize !== prev.filterMinSize) window.api.setPreference('filterMinSize', state.filterMinSize !== null ? String(state.filterMinSize) : '')
       if (state.filterMaxSize !== prev.filterMaxSize) window.api.setPreference('filterMaxSize', state.filterMaxSize !== null ? String(state.filterMaxSize) : '')
       if (state.filterMinDimension !== prev.filterMinDimension) window.api.setPreference('filterMinDimension', state.filterMinDimension !== null ? String(state.filterMinDimension) : '')
+      if (state.accentColor !== prev.accentColor) window.api.setPreference('accentColor', state.accentColor)
+      // Persist tabs (rootPath + currentPath — selection/scroll are ephemeral)
+      if (state.tabs !== prev.tabs || state.activeTabId !== prev.activeTabId) {
+        const tabData = state.tabs.map((t) => ({ id: t.id, rootPath: t.rootPath, currentPath: t.currentPath, displayName: t.displayName }))
+        window.api.setPreference('tabs', JSON.stringify(tabData))
+        window.api.setPreference('activeTabId', state.activeTabId)
+      }
     })
     return unsub
   }, [])
@@ -347,6 +486,20 @@ export function Sidebar(): JSX.Element {
   useEffect(() => {
     const unsubscribe = window.api.onScanProgress((progress) => {
       useGalleryStore.getState().setScanProgress(progress)
+    })
+    return unsubscribe
+  }, [])
+
+  // When the watcher detects folder structure changes (add/remove/rename),
+  // rebuild the sidebar tree so deleted/added folders are reflected immediately.
+  useEffect(() => {
+    const unsubscribe = window.api.onFolderStructureChanged(async () => {
+      const store = useGalleryStore.getState()
+      const tab = store.tabs.find((t) => t.id === store.activeTabId)
+      if (tab?.rootPath) {
+        const tree = await window.api.getFolderTree(tab.rootPath)
+        store.setFolderTreeForRoot(tab.rootPath, tree as import('../../types/models').FolderNode)
+      }
     })
     return unsubscribe
   }, [])
@@ -361,16 +514,15 @@ export function Sidebar(): JSX.Element {
   )
 
   const handleToggle = useCallback((path: string) => {
-    setExpandedPaths((prev) => {
-      const next = new Set(prev)
-      if (next.has(path)) {
-        next.delete(path)
-      } else {
-        next.add(path)
-      }
-      return next
-    })
-  }, [])
+    const prev = useGalleryStore.getState().sidebarExpandedPaths
+    const next = new Set(prev)
+    if (next.has(path)) {
+      next.delete(path)
+    } else {
+      next.add(path)
+    }
+    setSidebarExpandedPaths(next)
+  }, [setSidebarExpandedPaths])
 
   const findNodeInTrees = useCallback((path: string): FolderNode | null => {
     for (const tree of Object.values(folderTrees)) {
@@ -393,29 +545,25 @@ export function Sidebar(): JSX.Element {
     if (!node) return
     const descendants = collectPaths(node)
 
-    setExpandedPaths((prev) => {
-      const next = new Set(prev)
-      const shouldExpand = !next.has(path)
-      for (const p of descendants) {
-        if (shouldExpand) {
-          next.add(p)
-        } else {
-          next.delete(p)
-        }
+    const prev = useGalleryStore.getState().sidebarExpandedPaths
+    const next = new Set(prev)
+    const shouldExpand = !next.has(path)
+    for (const p of descendants) {
+      if (shouldExpand) {
+        next.add(p)
+      } else {
+        next.delete(p)
       }
-      return next
-    })
-  }, [findNodeInTrees])
+    }
+    setSidebarExpandedPaths(next)
+  }, [findNodeInTrees, setSidebarExpandedPaths])
 
   // Flat list of visible paths for keyboard navigation
+  const activeTree = activeRootPath ? folderTrees[activeRootPath] : null
   const visiblePaths = useMemo(() => {
-    const paths: string[] = []
-    for (const root of pinnedFolders) {
-      const tree = folderTrees[root]
-      if (tree) paths.push(...flattenVisible(tree, expandedPaths))
-    }
-    return paths
-  }, [pinnedFolders, folderTrees, expandedPaths])
+    if (!activeTree) return []
+    return flattenVisible(activeTree, expandedPaths)
+  }, [activeTree, expandedPaths])
 
   // Keyboard navigation for the sidebar
   useEffect(() => {
@@ -507,50 +655,23 @@ export function Sidebar(): JSX.Element {
       onMouseDown={handleSidebarFocus}
       onFocus={handleSidebarFocus}
     >
-      <div className="sidebar-header">
-        <button className="sidebar-icon-btn" onClick={handlePickFolder} title="Add Folder">
-          +
-        </button>
-        <span className="sidebar-header-title">Folders</span>
-      </div>
       <div className="sidebar-tree">
-        {pinnedFolders.length > 0 ? (
-          pinnedFolders.map((rootPath) => {
-            const tree = folderTrees[rootPath]
-            if (!tree) return null
-            return (
-              <div key={rootPath} className="sidebar-pinned-root">
-                <FolderTreeItem
-                  node={tree}
-                  depth={0}
-                  selectedPath={currentPath}
-                  focusedPath={focusRegion === 'sidebar' ? focusedPath : null}
-                  expandedPaths={expandedPaths}
-                  folderCounts={folderCounts}
-                  onSelect={handleFolderSelect}
-                  onToggle={handleToggle}
-                  onToggleRecursive={handleToggleRecursive}
-                />
-                {pinnedFolders.length > 1 && (
-                  <button
-                    className="sidebar-unpin-btn"
-                    onClick={() => {
-                      removePinnedFolder(rootPath)
-                      window.api.stopWatching(rootPath)
-                      window.api.setPreference('pinnedFolders', JSON.stringify(
-                        useGalleryStore.getState().pinnedFolders
-                      ))
-                    }}
-                    title="Remove folder"
-                  >
-                    {'\u2715'}
-                  </button>
-                )}
-              </div>
-            )
-          })
+        {activeTree ? (
+          <FolderTreeItem
+            node={activeTree}
+            depth={0}
+            selectedPath={currentPath}
+            focusedPath={focusRegion === 'sidebar' ? focusedPath : null}
+            expandedPaths={expandedPaths}
+            folderCounts={folderCounts}
+            syncedRoots={syncedRoots}
+            displayName={activeTab?.displayName}
+            onSelect={handleFolderSelect}
+            onToggle={handleToggle}
+            onToggleRecursive={handleToggleRecursive}
+          />
         ) : (
-          <div className="sidebar-empty">No folder selected</div>
+          <div className="sidebar-empty">Open a folder with the + button above</div>
         )}
       </div>
       <div className="sidebar-section-label">Filters</div>

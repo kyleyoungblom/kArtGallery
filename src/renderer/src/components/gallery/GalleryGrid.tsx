@@ -153,12 +153,35 @@ function MasonryGrid({
   )
   const resizeObserver = useResizeObserver(positioner)
 
-  // Scroll to top when content changes (folder switch, thumbnail reset)
-  // but NOT when file count changes from stacking/unstacking/filtering,
-  // and NOT from layout shifts (sidebar/panel toggle = layoutVersion).
+  // ── Scroll position: save to active tab & restore on tab switch ──
+  const pendingScrollRestore = useGalleryStore((s) => s.pendingScrollRestore)
+  const clearPendingScrollRestore = useGalleryStore((s) => s.clearPendingScrollRestore)
+  const updateActiveTabScroll = useGalleryStore((s) => s.updateActiveTabScroll)
+
+  // Save scroll position to the active tab (debounced to avoid spamming store)
+  const scrollSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  useEffect(() => {
+    if (scrollSaveTimer.current) clearTimeout(scrollSaveTimer.current)
+    scrollSaveTimer.current = setTimeout(() => {
+      updateActiveTabScroll(scrollTop)
+    }, 300)
+    return () => { if (scrollSaveTimer.current) clearTimeout(scrollSaveTimer.current) }
+  }, [scrollTop, updateActiveTabScroll])
+
+  // Scroll to top on content change OR restore saved position on tab switch.
   const contentKey = `${currentPath}:${thumbnailVersion}:${showLabels}`
   useEffect(() => {
-    containerRef.current?.scrollTo(0, 0)
+    if (pendingScrollRestore != null && pendingScrollRestore > 0) {
+      // Restore saved scroll position after masonry renders.
+      // Use rAF to wait for the DOM to update after files load.
+      requestAnimationFrame(() => {
+        containerRef.current?.scrollTo(0, pendingScrollRestore)
+        clearPendingScrollRestore()
+      })
+    } else {
+      containerRef.current?.scrollTo(0, 0)
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [contentKey, containerRef])
 
   return useMasonry({
@@ -182,7 +205,7 @@ export function GalleryGrid(): JSX.Element {
   const toolbarVisible = useGalleryStore((s) => s.toolbarVisible)
 
   // Attach zoom (Cmd+scroll, Cmd+/-) and keyboard nav (arrows, Space, Esc)
-  useGalleryZoom(containerRef)
+  useGalleryZoom()
   useGalleryKeyboard(containerRef, files)
 
   const handleFocus = useCallback(() => {

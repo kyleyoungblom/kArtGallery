@@ -1,4 +1,4 @@
-import { Breadcrumb } from './components/layout/Breadcrumb'
+import { TabBar } from './components/layout/TabBar'
 import { Sidebar } from './components/layout/Sidebar'
 import { StatusBar } from './components/layout/StatusBar'
 import { LogPanel } from './components/layout/LogPanel'
@@ -9,6 +9,7 @@ import { InfoPanel } from './components/layout/InfoPanel'
 import { SettingsModal } from './components/layout/SettingsModal'
 import { DuplicateReviewModal } from './components/layout/DuplicateReviewModal'
 import { useGalleryStore } from './stores/gallery.store'
+import { useAccentColor } from './hooks/useAccentColor'
 import { initThumbnailNotifications } from './hooks/useThumbnailReady'
 
 // Initialize the single global IPC listener for thumbnail notifications.
@@ -16,6 +17,8 @@ import { initThumbnailNotifications } from './hooks/useThumbnailReady'
 initThumbnailNotifications()
 
 export default function App(): JSX.Element {
+  // Sync accent color from store → CSS custom properties on :root
+  useAccentColor()
   const sidebarCollapsed = useGalleryStore((s) => s.sidebarCollapsed)
   const infoPanelOpen = useGalleryStore((s) => s.infoPanelOpen)
   const settingsOpen = useGalleryStore((s) => s.settingsOpen)
@@ -31,7 +34,7 @@ export default function App(): JSX.Element {
     <div className={layoutClasses}>
       <Sidebar />
       <div className="app-main">
-        <Breadcrumb />
+        <TabBar />
         <GalleryGrid />
         <SelectionPill />
         <LogPanel />

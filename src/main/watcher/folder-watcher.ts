@@ -243,8 +243,15 @@ function processBatch(root: string): void {
     modified: fileChanges.filter(isSupportedImage)
   }
 
+  const hasFolderStructureChanges = renames.length > 0 || remainingAdds.length > 0 || remainingRemoves.length > 0
+
   for (const win of BrowserWindow.getAllWindows()) {
     win.webContents.send('watcher:files-changed', changePayload)
+    // When folder structure changes (add/remove/rename), tell the renderer
+    // to rebuild its sidebar tree. The renderer will call getFolderTree.
+    if (hasFolderStructureChanges) {
+      win.webContents.send('watcher:folder-structure-changed')
+    }
   }
 
   // 10. Log summary

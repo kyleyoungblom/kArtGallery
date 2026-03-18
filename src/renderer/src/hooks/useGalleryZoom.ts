@@ -5,15 +5,20 @@ import { useGalleryStore } from '../stores/gallery.store'
 // On macOS, trackpad pinch fires wheel events with ctrlKey: true.
 // The wheel handler is on document (capture phase) so it intercepts pinch
 // before Chromium's built-in zoom can consume the event.
+//
+// Listeners are registered on document unconditionally — they don't need a
+// DOM element ref. The original version guarded on containerRef.current which
+// caused a timing bug: the GalleryGrid component calls useGalleryZoom before
+// its early-return branches, so on the first render (no folder selected) the
+// ref is null and the effect exits without registering listeners. Because the
+// ref *object* is stable across renders, the effect never re-runs when the
+// grid div finally mounts.
 
-export function useGalleryZoom(containerRef: React.RefObject<HTMLDivElement | null>): void {
+export function useGalleryZoom(): void {
   const rafRef = useRef<number | null>(null)
   const pendingDelta = useRef(0)
 
   useEffect(() => {
-    const el = containerRef.current
-    if (!el) return
-
     function handleWheel(e: WheelEvent): void {
       // Only handle Cmd+scroll or trackpad pinch (ctrlKey on macOS)
       if (!e.metaKey && !e.ctrlKey) return
@@ -72,5 +77,5 @@ export function useGalleryZoom(containerRef: React.RefObject<HTMLDivElement | nu
       document.removeEventListener('keydown', handleKeydown)
       if (rafRef.current !== null) cancelAnimationFrame(rafRef.current)
     }
-  }, [containerRef])
+  }, [])
 }
