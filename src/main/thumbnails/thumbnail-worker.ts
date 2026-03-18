@@ -191,6 +191,27 @@ async function processWithSips(job: ThumbnailJob): Promise<ProcessResult> {
   // macOS `sips` can decode many formats that sharp/libvips cannot,
   // including old Photoshop PSDs, Procreate exports, and unusual BMPs.
   // Convert to a temp PNG first, then let sharp resize to JPEG thumbnail.
+  //
+  // IMPORTANT: Read the original file's dimensions BEFORE resampling.
+  // The --resampleHeightWidthMax flag shrinks the output, so reading
+  // dimensions from the resampled temp PNG would store thumbnail dimensions
+  // (e.g., 400×300) instead of the actual file dimensions (e.g., 2732×2048).
+
+  // Get real dimensions from the original file via sips -g
+  let origWidth = 0
+  let origHeight = 0
+  try {
+    const info = execFileSync('sips', ['-g', 'pixelWidth', '-g', 'pixelHeight', job.sourcePath], {
+      timeout: 10000, encoding: 'utf-8'
+    })
+    const wMatch = info.match(/pixelWidth:\s*(\d+)/)
+    const hMatch = info.match(/pixelHeight:\s*(\d+)/)
+    if (wMatch) origWidth = parseInt(wMatch[1], 10)
+    if (hMatch) origHeight = parseInt(hMatch[1], 10)
+  } catch {
+    // Fall through — we'll get 0×0 which is better than wrong dimensions
+  }
+
   const tempPng = job.outputPath + '.tmp.png'
   try {
     execFileSync('sips', [
@@ -200,12 +221,11 @@ async function processWithSips(job: ThumbnailJob): Promise<ProcessResult> {
       '--out', tempPng
     ], { timeout: 30000 })
 
-    const metadata = await sharp(tempPng).metadata()
     await sharp(tempPng)
       .jpeg({ quality: job.quality })
       .toFile(job.outputPath)
 
-    return { width: metadata.width ?? 0, height: metadata.height ?? 0 }
+    return { width: origWidth, height: origHeight }
   } finally {
     try { fs.unlinkSync(tempPng) } catch { /* cleanup best-effort */ }
   }

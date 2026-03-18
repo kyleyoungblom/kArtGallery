@@ -4,7 +4,7 @@ import os from 'os'
 import fs from 'fs'
 import { BrowserWindow } from 'electron'
 import { getThumbnailCacheDir } from '../utils/paths'
-import { getFilesNeedingThumbnails, updateThumbnail, markThumbnailFailed, resetFailedThumbnails, updateFileHash, resetFilesNeedingHashes } from '../db/repositories/files.repo'
+import { getFilesNeedingThumbnails, updateThumbnail, markThumbnailFailed, resetFailedThumbnails, updateFileHash, resetFilesNeedingHashes, resetFilesWithWrongDimensions } from '../db/repositories/files.repo'
 import { isSharpSupported, isPsd } from '../utils/supported-formats'
 import { appLog } from '../utils/app-logger'
 import { setPreference } from '../db/repositories/preferences.repo'
@@ -210,6 +210,23 @@ export function startThumbnailGeneration(): void {
       appLog('info', 'thumbnails', `One-time backfill: re-queued ${hashBackfill} files for perceptual hash computation`)
     }
     setPreference('hashBackfillComplete', '1')
+  }
+
+  // One-time fix: re-queue sips-processed files that stored thumbnail dimensions
+  // instead of actual file dimensions. The processWithSips() bug read dimensions
+  // from the resampled temp PNG (e.g., 400×300) rather than the original file
+  // (e.g., 2732×2048). Files where both width and height are ≤ maxDimension and
+  // the extension is a sips-fallback format are likely affected.
+  // V2: The first run of this migration (sipsDimensionFixComplete) re-queued
+  // files but the worker code still had the old bug. Now that processWithSips()
+  // is fixed to read original dimensions via sips -g, we need to re-run.
+  if (!getSetting('sipsDimensionFixV2', '')) {
+    const thumbMax = getSetting('thumbnail.maxDimension', APP_DEFAULTS.thumbnail.maxDimension)
+    const dimFix = resetFilesWithWrongDimensions(thumbMax)
+    if (dimFix > 0) {
+      appLog('info', 'thumbnails', `One-time fix (v2): re-queued ${dimFix} files with incorrect dimensions`)
+    }
+    setPreference('sipsDimensionFixV2', '1')
   }
 
   const files = getFilesNeedingThumbnails()

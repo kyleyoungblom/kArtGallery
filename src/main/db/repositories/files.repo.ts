@@ -272,6 +272,28 @@ export function resetFilesNeedingHashes(): number {
   return result.changes
 }
 
+// Re-queue sips-processed files that have suspiciously small dimensions.
+// The processWithSips() function had a bug where it stored the resampled
+// thumbnail dimensions instead of the original file dimensions. This resets
+// those files so the fixed pipeline re-processes them with correct dimensions.
+export function resetFilesWithWrongDimensions(maxThumbDim: number): number {
+  // Targets: PSD, TIFF, BMP, etc. that went through sips — files where BOTH
+  // width and height are ≤ the thumbnail max dimension AND have a thumbnail.
+  // Normal images processed by sharp have correct dimensions, so this is safe.
+  const sipsExtensions = ['.psd', '.psb', '.tiff', '.tif', '.bmp']
+  const placeholders = sipsExtensions.map(() => '?').join(',')
+  const result = getDb()
+    .prepare(
+      `UPDATE files SET thumbnail_generated = 0
+       WHERE extension IN (${placeholders})
+         AND thumbnail_generated = 1
+         AND width IS NOT NULL AND width > 0
+         AND width <= ? AND height <= ?`
+    )
+    .run(...sipsExtensions, maxThumbDim, maxThumbDim)
+  return result.changes
+}
+
 // Clear all perceptual hashes so they can be recomputed from scratch.
 // Used for the "Rehash All" maintenance action.
 export function resetAllHashes(): number {

@@ -44,6 +44,11 @@
         "nsis"
       ]
     },
+    "publish": {
+      "provider": "github",
+      "owner": "kyleyoungblom",
+      "repo": "kArtGallery"
+    },
     "asar": true,
     "asarUnpack": [
       "**/node_modules/better-sqlite3/**",
@@ -55,6 +60,7 @@
     "@webtoon/psd": "^0.4.0",
     "better-sqlite3": "^11.7.0",
     "chokidar": "^4.0.0",
+    "electron-updater": "^6.8.3",
     "masonic": "^4.0.1",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",

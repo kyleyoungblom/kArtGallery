@@ -1,16 +1,19 @@
 // before-pack.js — electron-builder hook for cross-platform native modules
 //
-// Problem: Native modules (better-sqlite3) are compiled for the HOST platform
-// during development (macOS ARM64 via electron-rebuild). When we build a Windows
+// Problem: Native modules (better-sqlite3, sharp) are compiled/installed for
+// the HOST platform during development (macOS ARM64). When we build a Windows
 // installer from macOS, those macOS binaries get bundled — and crash on Windows.
 //
 // Solution: This hook runs right before electron-builder assembles the app
-// directory into the distributable. For non-host platforms, it downloads the
-// correct prebuilt binary from the module's GitHub releases and swaps it in.
+// directory into the distributable. For non-host platforms, it:
 //
-// sharp is handled differently — it uses separate @img/sharp-<platform> npm
-// packages. We install @img/sharp-win32-x64 into node_modules ahead of time
-// and electron-builder bundles it automatically.
+// 1. better-sqlite3: Downloads the correct prebuilt .node binary from
+//    the module's GitHub releases and swaps it into node_modules.
+//
+// 2. sharp: Installs the target platform's @img/sharp-<platform> npm
+//    packages into node_modules so electron-builder bundles them.
+//    sharp uses separate npm packages per platform (e.g., @img/sharp-win32-x64)
+//    and npm only installs the host platform's optional deps by default.
 
 const { execSync } = require('child_process')
 const fs = require('fs')
@@ -94,4 +97,43 @@ module.exports = async function beforePack(context) {
     // Clean up temp files regardless of success/failure
     fs.rmSync(tmpDir, { recursive: true, force: true })
   }
+
+  // ── sharp: install target-platform npm packages ──
+  //
+  // sharp uses optional npm dependencies per platform (@img/sharp-darwin-arm64,
+  // @img/sharp-win32-x64, etc.). npm only installs the host platform's packages.
+  // For cross-platform builds, we need to explicitly install the target's packages
+  // into node_modules so electron-builder bundles them.
+  //
+  // We read sharp's optionalDependencies to get the exact versions, then install
+  // only the packages matching the target platform+arch.
+
+  const sharpPkg = require(
+    path.join(projectRoot, 'node_modules', 'sharp', 'package.json')
+  )
+  const optDeps = sharpPkg.optionalDependencies || {}
+
+  // Find all @img/* packages for the target platform-arch
+  // e.g., for win32-x64: @img/sharp-win32-x64, @img/sharp-libvips-win32-x64
+  const targetSuffix = `${platformName}-${archName}`
+  const packagesToInstall = Object.entries(optDeps)
+    .filter(([name]) => name.includes(targetSuffix))
+    .map(([name, version]) => `${name}@${version}`)
+
+  if (packagesToInstall.length === 0) {
+    console.log(`[before-pack] No sharp packages found for ${targetSuffix}`)
+    return
+  }
+
+  console.log(`[before-pack] Installing sharp packages for ${targetSuffix}: ${packagesToInstall.join(', ')}`)
+
+  // Install into the project's node_modules. The --no-save flag prevents
+  // modifying package.json. These packages will be picked up by electron-builder
+  // when it copies node_modules into the app bundle.
+  execSync(
+    `npm install --no-save ${packagesToInstall.join(' ')}`,
+    { cwd: projectRoot, stdio: 'inherit' }
+  )
+
+  console.log(`[before-pack] ✓ Installed sharp for ${platformName}-${archName}`)
 }

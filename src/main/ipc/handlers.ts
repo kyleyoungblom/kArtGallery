@@ -7,6 +7,7 @@ import { registerStackHandlers } from './stacks.ipc'
 import { registerWatcherHandlers } from './watcher.ipc'
 import { registerDuplicateHandlers } from './duplicates.ipc'
 import { registerSyncHandlers } from './sync.ipc'
+import { initAutoUpdater } from '../updater/auto-updater'
 
 // Single registration point for all IPC handlers. This makes it easy to see
 // at a glance what the main process can do, and ensures we don't accidentally
@@ -22,4 +23,5 @@ export function registerAllHandlers(): void {
   registerWatcherHandlers()
   registerDuplicateHandlers()
   registerSyncHandlers()
+  initAutoUpdater()
 }
